@@ -78,6 +78,9 @@ export default function Home() {
 
   const busy = !!job && (job.status === "QUEUED" || job.status === "RUNNING");
 
+  const step = !video ? 1 : highlights.length === 0 ? 2 : clips.length === 0 ? 3 : 4;
+  const steps = ["Видео", "Моменты", "Клипы"];
+
   const modeLabel = () => {
     if (!health) return "…";
     if (health.whisper && health.whisper_ready && health.llm) return `Whisper + Ollama (${health.whisper_model})`;
@@ -365,32 +368,57 @@ export default function Home() {
   };
 
   return (
-    <main className="mx-auto min-h-screen max-w-6xl px-5 py-10 md:px-10">
-      <header className="mb-12 flex items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold tracking-[.28em] text-violet-400">LOCAL VIDEO STUDIO</p>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight">KLIPANI</h1>
+    <main className="mx-auto min-h-screen max-w-6xl px-5 py-8 md:px-10">
+      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/icon.png" alt="KLIPANI" className="h-11 w-11 rounded-2xl shadow-lg shadow-brand-pink/20" />
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">
+              KLIPANI <span className="font-light text-zinc-500">studio</span>
+            </h1>
+            <p className="text-xs text-zinc-500">стримы → вертикальные клипы</p>
+          </div>
         </div>
-        <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">{modeLabel()}</span>
+        <div className="flex items-center gap-2">
+          {storage !== undefined && storage.total > 0 && (
+            <span className="flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">
+              {bytes(storage.total)}
+              <button
+                onClick={clearCache}
+                title="Удалить все видео, кроме текущего. Текущая нарезка не сбросится."
+                className="text-zinc-500 hover:text-zinc-200"
+              >
+                Очистить кэш
+              </button>
+            </span>
+          )}
+          <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">{modeLabel()}</span>
+        </div>
       </header>
-      {storage !== undefined && storage.total > 0 && (
-        <p className="mb-4 flex items-center justify-end gap-3 text-xs text-zinc-500">
-          <span>Хранилище: {bytes(storage.total)}</span>
-          <button
-            onClick={clearCache}
-            title="Удалить все видео, кроме текущего. Текущая нарезка не сбросится."
-            className="rounded-lg border border-zinc-700 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
-          >
-            Очистить кэш
-          </button>
-        </p>
-      )}
 
-      <section className="rounded-3xl border border-zinc-800 bg-gradient-to-b from-zinc-900 to-zinc-950 p-8 shadow-2xl shadow-black/30">
-        <h2 className="text-2xl font-semibold">Превращает стримы в TikTok-клипы</h2>
-        <p className="mt-2 text-zinc-400">
-          Загрузите запись — Whisper распознает речь, локальная модель или mock найдёт моменты, FFmpeg соберёт вертикальные ролики.
-        </p>
+      <nav className="mb-8 flex items-center gap-2" aria-label="Шаги">
+        {steps.map((label, i) => {
+          const n = i + 1;
+          const done = step > n || (n === 3 && clips.length > 0);
+          const active = step === n;
+          return (
+            <div key={label} className="flex flex-1 items-center gap-2 last:flex-none">
+              <span
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                  done ? "bg-brand-cyan text-black" : active ? "border-2 border-brand-cyan text-brand-cyan" : "border border-zinc-700 text-zinc-600"
+                }`}
+              >
+                {done ? "✓" : n}
+              </span>
+              <span className={`text-sm ${active || done ? "text-zinc-200" : "text-zinc-600"}`}>{label}</span>
+              {i < steps.length - 1 && <span className="mx-1 h-px flex-1 bg-zinc-800" />}
+            </div>
+          );
+        })}
+      </nav>
+
+      <section className="rounded-3xl border border-zinc-800/80 bg-brand-panel p-6 shadow-2xl shadow-black/40 md:p-8">
         <div
           onDragOver={(e: DragEvent) => e.preventDefault()}
           onDrop={(e: DragEvent) => {
@@ -398,22 +426,30 @@ export default function Home() {
             choose(e.dataTransfer.files[0]);
           }}
           onClick={() => input.current?.click()}
-          className="mt-7 cursor-pointer rounded-2xl border border-dashed border-violet-500/50 bg-violet-500/5 px-6 py-14 text-center hover:bg-violet-500/10"
+          className="cursor-pointer rounded-2xl border-2 border-dashed border-zinc-700 px-6 py-12 text-center transition hover:border-brand-cyan/60 hover:bg-brand-cyan/5"
         >
-          <div className="text-lg font-medium">{loading ? "Загрузка и проверка видео…" : "Перетащите запись стрима сюда"}</div>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-cyan/10 text-2xl">⬆</div>
+          <div className="text-lg font-semibold">{loading ? "Загрузка и проверка видео…" : "Перетащите запись стрима сюда"}</div>
           <div className="mt-2 text-sm text-zinc-400">
-            или <span className="text-violet-300">выберите файл</span> · MP4 / MKV / MOV / WEBM
+            или <span className="font-medium text-brand-cyan">выберите файл</span>
+          </div>
+          <div className="mt-4 flex justify-center gap-2">
+            {["MP4", "MKV", "MOV", "WEBM"].map((f) => (
+              <span key={f} className="rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-zinc-400">
+                {f}
+              </span>
+            ))}
           </div>
           <input ref={input} onChange={(e: ChangeEvent<HTMLInputElement>) => choose(e.target.files?.[0])} className="hidden" type="file" accept=".mp4,.mkv,.mov,.webm,video/*" />
         </div>
 
-        {error && <p className="mt-5 rounded-xl border border-red-900/60 bg-red-950/40 p-3 text-sm text-red-300">{error}</p>}
+        {error && <p className="mt-5 rounded-xl border border-brand-pink/40 bg-brand-pink/10 p-3 text-sm text-red-200">{error}</p>}
 
         {video && (
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-zinc-800 bg-zinc-950/70 p-5">
-            <div>
-              <p className="font-medium">{video.filename}</p>
-              <p className="mt-1 text-sm text-zinc-400">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-black/40 p-5 ring-1 ring-zinc-800">
+            <div className="min-w-0">
+              <p className="truncate font-medium">{video.filename}</p>
+              <p className="mt-1 font-mono text-xs text-zinc-400">
                 {bytes(video.size)} · {time(video.duration)} · {video.width}×{video.height} · {video.fps} fps
               </p>
             </div>
@@ -424,12 +460,12 @@ export default function Home() {
                 </button>
               )}
               {!busy && (
-                <button onClick={removeVideo} title="Удалить видео, клипы и транскрипты с диска" className="rounded-xl border border-red-900/60 px-4 py-3 text-sm text-red-300 hover:bg-red-950/40">
+                <button onClick={removeVideo} title="Удалить видео, клипы и транскрипты с диска" className="rounded-xl border border-zinc-800 px-4 py-3 text-sm text-zinc-500 hover:border-red-900/60 hover:text-red-300">
                   Удалить
                 </button>
               )}
-              <button disabled={busy} onClick={analyze} className="rounded-xl bg-violet-500 px-5 py-3 font-semibold text-white hover:bg-violet-400 disabled:opacity-50">
-                Начать анализ
+              <button disabled={busy} onClick={analyze} className="rounded-xl bg-brand-cyan px-6 py-3 font-bold text-black hover:brightness-110 disabled:opacity-50">
+                {highlights.length > 0 ? "Анализ заново" : "Найти моменты"}
               </button>
             </div>
           </div>
@@ -438,11 +474,11 @@ export default function Home() {
         {job && (
           <div className="mt-5">
             <div className="mb-2 flex justify-between text-sm">
-              <span>{stepLabel(job.current_step)}</span>
-              <span>{job.progress}%</span>
+              <span className="text-zinc-300">{stepLabel(job.current_step)}</span>
+              <span className="font-mono text-zinc-400">{job.progress}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded bg-zinc-800">
-              <div className="h-full bg-violet-500 transition-all" style={{ width: `${job.progress}%` }} />
+            <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+              <div className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-pink transition-all" style={{ width: `${job.progress}%` }} />
             </div>
           </div>
         )}
@@ -450,24 +486,27 @@ export default function Home() {
 
       {highlights.length > 0 && (
         <section className="mt-12">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-xl font-semibold">Найдено моментов: {highlights.length}</h2>
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold tracking-widest text-zinc-500">ШАГ 2 · МОМЕНТЫ</p>
+              <h2 className="mt-1 text-xl font-bold">Что нарезать <span className="font-normal text-zinc-500">· {highlights.length}</span></h2>
+            </div>
             <div className="flex items-center gap-3">
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-zinc-800 bg-brand-panel px-3 py-2 text-sm text-zinc-300">
                 <input
                   type="checkbox"
                   checked={withSubtitles}
                   onChange={(e) => setWithSubtitles(e.target.checked)}
-                  className="h-4 w-4 accent-violet-500"
+                  className="h-4 w-4 accent-[#00F2EA]"
                 />
                 Субтитры
               </label>
-              <label className="flex items-center gap-2 text-sm text-zinc-300">
+              <label className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-brand-panel px-3 py-2 text-sm text-zinc-300">
                 Кадр
                 <select
                   value={exportStyle}
                   onChange={(e) => setExportStyle(e.target.value)}
-                  className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                  className="bg-transparent text-sm text-zinc-200"
                 >
                   <option value="crop">Обрезка</option>
                   <option value="blur">Блюр-фон</option>
@@ -477,7 +516,7 @@ export default function Home() {
                 disabled={busy}
                 onClick={montageVideo}
                 title="Склеить лучшие моменты всего видео в один клип"
-                className="rounded-xl border border-amber-500/50 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/10 disabled:opacity-50"
+                className="rounded-xl bg-brand-pink px-4 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
               >
                 Собрать монтаж
               </button>
@@ -488,63 +527,69 @@ export default function Home() {
           )}
           {analysis &&
             (analysis.has_transcript && analysis.llm_provider === "ollama" ? (
-              <p className="mt-2 inline-block rounded-full border border-emerald-800 bg-emerald-950/50 px-3 py-1 text-xs text-emerald-300">
-                Whisper + Ollama · транскрипт: {analysis.segments} сегментов
+              <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-cyan/10 px-3 py-1 text-xs text-brand-cyan">
+                <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan" /> Whisper + Ollama · {analysis.segments} сегментов речи
               </p>
             ) : analysis.has_transcript ? (
-              <p className="mt-2 inline-block rounded-full border border-amber-800 bg-amber-950/50 px-3 py-1 text-xs text-amber-300">
-                Транскрипт есть ({analysis.segments} сегм.), но Ollama недоступна — моменты от mock-ранжирования
+              <p className="mt-3 inline-block rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
+                Транскрипт есть ({analysis.segments} сегм.), но Ollama недоступна — оценка по тексту
               </p>
             ) : (
-              <p className="mt-2 inline-block rounded-full border border-amber-800 bg-amber-950/50 px-3 py-1 text-xs text-amber-300">
-                Речь не распознана — моменты по длительности (mock), без анализа содержания
+              <p className="mt-3 inline-block rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
+                Речь не распознана — моменты расставлены по длительности
               </p>
             ))}
-          <p className="mt-1 text-sm text-zinc-400">Подправьте границы в секундах и пересоберите клип.</p>
           <div className="mt-5 grid gap-4 md:grid-cols-3">
-            {highlights.map((h) => (
-              <article key={h.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
-                <div className="flex justify-between">
-                  <span className="rounded-full bg-violet-500/15 px-2 py-1 text-xs font-semibold text-violet-300">{h.category}</span>
-                  <span className="text-sm text-amber-300">{h.score}/100</span>
+            {highlights.map((h, i) => (
+              <article key={h.id} className="flex flex-col rounded-2xl border border-zinc-800/80 bg-brand-panel p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-300">#{i + 1}</span>
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-zinc-300">{h.category}</span>
+                  </div>
+                  <span className="font-mono text-sm font-bold tabular-nums text-brand-cyan">{h.score}</span>
                 </div>
-                <p className="mt-4 text-sm text-zinc-300">{h.reason}</p>
-                {h.transcript_excerpt && <p className="mt-3 line-clamp-3 text-xs text-zinc-500">«{h.transcript_excerpt}»</p>}
+                <div className="mt-2 h-1 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-brand-cyan/70" style={{ width: `${h.score}%` }} />
+                </div>
+                <p className="mt-3 flex-1 text-sm leading-snug text-zinc-300">{h.reason}</p>
+                {h.transcript_excerpt && <p className="mt-2 line-clamp-2 text-xs italic text-zinc-500">«{h.transcript_excerpt}»</p>}
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <label className="text-xs text-zinc-500">
-                    Старт (м:сс)
+                  <label className="text-[11px] uppercase tracking-wide text-zinc-500">
+                    Старт · м:сс
                     <input
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200"
+                      className="mt-1 w-full rounded-lg border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-sm tabular-nums text-zinc-200"
                       value={drafts[h.id]?.start ?? toMinSec(h.start_time)}
                       onChange={(e) => setDrafts((prev) => ({ ...prev, [h.id]: { start: e.target.value, end: prev[h.id]?.end ?? toMinSec(h.end_time) } }))}
                     />
                   </label>
-                  <label className="text-xs text-zinc-500">
-                    Конец (м:сс)
+                  <label className="text-[11px] uppercase tracking-wide text-zinc-500">
+                    Конец · м:сс
                     <input
-                      className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-sm text-zinc-200"
+                      className="mt-1 w-full rounded-lg border border-zinc-800 bg-black/40 px-2 py-1.5 font-mono text-sm tabular-nums text-zinc-200"
                       value={drafts[h.id]?.end ?? toMinSec(h.end_time)}
                       onChange={(e) => setDrafts((prev) => ({ ...prev, [h.id]: { start: prev[h.id]?.start ?? toMinSec(h.start_time), end: e.target.value } }))}
                     />
                   </label>
                 </div>
-                <p className="mt-2 font-mono text-xs text-zinc-500">
+                <p className="mt-2 font-mono text-[11px] tabular-nums text-zinc-600">
                   {time(parseMinSec(drafts[h.id]?.start ?? String(h.start_time)))} — {time(parseMinSec(drafts[h.id]?.end ?? String(h.end_time)))}
                 </p>
-                <div className="mt-4 flex gap-2">
+                <div className="mt-3 flex gap-2">
                   <button
                     disabled={savingId === h.id || busy}
                     onClick={() => saveBounds(h)}
-                    className="flex-1 rounded-xl border border-zinc-700 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                    title="Сохранить границы"
+                    className="rounded-xl border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
                   >
-                    Сохранить
+                    {savingId === h.id ? "…" : "OK"}
                   </button>
                   <button
                     disabled={busy}
                     onClick={() => generate(h)}
-                    className="flex-1 rounded-xl border border-violet-500/50 py-2 text-sm font-medium text-violet-200 hover:bg-violet-500/10 disabled:opacity-50"
+                    className="flex-1 rounded-xl bg-zinc-100 py-2 text-sm font-bold text-black hover:bg-white disabled:opacity-50"
                   >
-                    Создать клип
+                    В клип →
                   </button>
                 </div>
               </article>
@@ -554,15 +599,22 @@ export default function Home() {
       )}
 
       {video && (
-        <section className="mt-12 rounded-2xl border border-zinc-800 bg-zinc-900 p-5">
+        <details className="mt-10 rounded-2xl border border-zinc-800/80 bg-brand-panel">
+          <summary className="flex cursor-pointer list-none items-center justify-between p-5">
+            <span>
+              <span className="text-xs font-bold tracking-widest text-zinc-500">НАСТРОЙКА</span>
+              <span className="ml-3 text-base font-bold">Водяной знак {wm.watermark_enabled === "1" || wm.watermark_enabled === "true" ? <span className="text-brand-cyan">· вкл</span> : <span className="text-zinc-600">· выкл</span>}</span>
+            </span>
+            <span className="text-zinc-500">▾</span>
+          </summary>
+          <div className="px-5 pb-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-lg font-semibold">Водяной знак</h2>
             <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
               <input
                 type="checkbox"
                 checked={wm.watermark_enabled === "1" || wm.watermark_enabled === "true"}
                 onChange={(e) => setWm((prev) => ({ ...prev, watermark_enabled: e.target.checked ? "1" : "0" }))}
-                className="h-4 w-4 accent-violet-500"
+                className="h-4 w-4 accent-[#00F2EA]"
               />
               Включить
             </label>
@@ -611,35 +663,38 @@ export default function Home() {
           <p className="mt-3 text-xs text-zinc-500">
             Логотип — по желанию: положите PNG в storage/watermarks/twitch.png или youtube.png, иначе будет только @ник.
           </p>
-        </section>
+          </div>
+        </details>
       )}
 
       {clips.length > 0 && (
-        <section className="mt-12 pb-12">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className="mr-2 text-xl font-semibold">Клипы</h2>
-              {(["current", "history"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => {
-                    setClipTab(t);
-                    if (t === "history") refreshHistory();
-                  }}
-                  className={`rounded-lg px-3 py-1.5 text-sm ${
-                    clipTab === t ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
-                  }`}
-                >
-                  {t === "current" ? "Текущие" : "История"}
-                </button>
-              ))}
+        <section className="mt-10 pb-12">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold tracking-widest text-zinc-500">ШАГ 3 · РЕЗУЛЬТАТ</p>
+              <div className="mt-1 flex items-center gap-1 rounded-xl border border-zinc-800 bg-brand-panel p-1">
+                {(["current", "history"] as const).map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => {
+                      setClipTab(t);
+                      if (t === "history") refreshHistory();
+                    }}
+                    className={`rounded-lg px-4 py-1.5 text-sm font-medium ${
+                      clipTab === t ? "bg-zinc-100 text-black" : "text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    {t === "current" ? "Текущие" : "История"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
+            <label className="flex items-center gap-2 text-sm text-zinc-400">
               Сортировка
               <select
                 value={clipSort}
                 onChange={(e) => setClipSort(e.target.value as typeof clipSort)}
-                className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-sm text-zinc-200"
+                className="rounded-lg border border-zinc-800 bg-brand-panel px-2 py-1.5 text-sm text-zinc-200"
               >
                 <option value="new">Сначала новые</option>
                 <option value="views">По просмотрам</option>
@@ -655,35 +710,35 @@ export default function Home() {
           )}
           <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {sortedClips.map((c) => (
-              <article key={c.id} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-                <video className="aspect-[9/16] w-full bg-black" controls preload="metadata" poster={api.thumbnailUrl(c.id)} src={api.videoUrl(c.id)} />
-                <div className="p-4">
-                  <p className="flex items-center justify-between text-sm text-zinc-400">
-                    <span>
-                      {time(c.start_time)} — {time(c.end_time)}
-                      {c.kind === "MONTAGE" && (
-                        <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-300">
-                          монтаж
-                        </span>
-                      )}
+              <article key={c.id} className="group overflow-hidden rounded-2xl border border-zinc-800/80 bg-brand-panel transition hover:border-zinc-700">
+                <div className="relative">
+                  <video className="aspect-[9/16] w-full bg-black" controls preload="metadata" poster={api.thumbnailUrl(c.id)} src={api.videoUrl(c.id)} />
+                  {c.kind === "MONTAGE" && (
+                    <span className="absolute left-3 top-3 rounded-full bg-brand-pink px-2.5 py-0.5 text-[11px] font-bold text-white">
+                      МОНТАЖ
                     </span>
-                    <button
-                      onClick={() => removeClip(c)}
-                      title="Удалить клип с диска"
-                      className="rounded-lg px-2 py-1 text-xs text-zinc-600 hover:bg-red-950/40 hover:text-red-300"
-                    >
-                      ✕
-                    </button>
+                  )}
+                  <button
+                    onClick={() => removeClip(c)}
+                    title="Удалить клип с диска"
+                    className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-400 opacity-0 transition group-hover:opacity-100 hover:text-red-300"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-4">
+                  <p className="font-mono text-xs tabular-nums text-zinc-400">
+                    {time(c.start_time)} — {time(c.end_time)}
                   </p>
-                  <div className="mt-3 flex gap-2">
-                    <a className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-center text-sm hover:bg-zinc-700" href={api.videoUrl(c.id)} download>
-                      Скачать MP4
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <a className="rounded-xl bg-zinc-100 px-3 py-2 text-center text-sm font-bold text-black hover:bg-white" href={api.videoUrl(c.id)} download>
+                      Скачать
                     </a>
                     <button
                       onClick={() => openPublish(c)}
-                      className="flex-1 rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-200 hover:bg-red-500/10"
+                      className="rounded-xl bg-brand-pink/15 px-3 py-2 text-sm font-bold text-brand-pink hover:bg-brand-pink/25"
                     >
-                      YouTube
+                      Опубликовать
                     </button>
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
@@ -752,7 +807,7 @@ export default function Home() {
                               <button
                                 onClick={connectProvider}
                                 disabled={st && !st.configured}
-                                className="mt-2 w-full rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                                className="mt-2 w-full rounded-lg bg-brand-pink px-3 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
                               >
                                 Подключить {pubProvider === "youtube" ? "YouTube" : "TikTok"}
                               </button>
@@ -787,7 +842,7 @@ export default function Home() {
                               <button
                                 disabled={pubBusy === c.id}
                                 onClick={() => publishClip(c)}
-                                className="flex-1 rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50"
+                                className="flex-1 rounded-lg bg-brand-pink px-3 py-1.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
                               >
                                 {pubBusy === c.id ? "Загрузка…" : "Опубликовать"}
                               </button>
