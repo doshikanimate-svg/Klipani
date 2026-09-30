@@ -1,0 +1,16 @@
+.venv/
+frontend/node_modules/
+frontend/.next/
+storage/uploads/
+storage/clips/
+storage/thumbnails/
+storage/transcripts/
+storage/working/
+storage/*.db
+storage/yt_token.json
+storage/tt_token.json
+storage/yt_client.json
+storage/watermarks/*.auto.png
+.env
+.DS_Store
+/var/

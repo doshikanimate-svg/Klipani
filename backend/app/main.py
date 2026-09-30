@@ -1,0 +1,419 @@
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel, Field
+
+from .config import get_settings
+from .db import DB_FILENAME, initialize
+from .providers.llm.factory import active_provider_name
+from .providers.llm.ollama import ollama_available
+from .providers.publishing.base import PublishMetadata
+from .providers.publishing.youtube import YouTubeProvider
+from .providers.publishing.tiktok import TikTokProvider
+from .services.analysis_service import get_analysis
+from .services.app_settings import get_all as get_app_settings
+from .services.app_settings import update as update_app_settings
+from .services.clip_service import delete_clip, get_clip, list_clips
+from .services.highlight_service import get_highlight, list_highlights, update_highlight
+from .services.job_service import JobConflictError, cancel_job, create_job, get_job
+from .services.publication_service import list_publications, save_publication
+from .services.stats_service import get_clip_stats, put_clip_stats
+from .services.transcription_service import get_transcript, installed as whisper_installed, model_cached as whisper_model_ready
+from .services.video_service import create_video, get_video, list_videos
+from .utils.ffmpeg import VideoToolError, available
+from .utils.filesystem import safe_upload_name
+
+settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    initialize()
+    yield
+
+
+app = FastAPI(title="KLIPANI", version="0.3.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    # LAN origins for the mobile companion (same Wi-Fi); no cookies used.
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+class HighlightBounds(BaseModel):
+    start_time: float = Field(..., ge=0)
+    end_time: float = Field(..., gt=0)
+
+
+class PublishRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+    description: str = Field(default="", max_length=5000)
+    privacy: str = Field(default="unlisted", pattern="^(private|unlisted|public)$")
+
+
+class ClipStatsBody(BaseModel):
+    views: int = Field(default=0, ge=0)
+    likes: int = Field(default=0, ge=0)
+
+
+@app.get("/api/settings")
+def read_settings() -> dict:
+    return get_app_settings()
+
+
+@app.put("/api/settings")
+def write_settings(body: dict) -> dict:
+    try:
+        return update_app_settings(body or {})
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+def required_video(video_id: str) -> dict:
+    video = get_video(video_id)
+    if not video:
+        raise HTTPException(404, "Видео не найдено.")
+    return video
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {
+        "status": "ok",
+        "ffmpeg": available("ffmpeg"),
+        "ffprobe": available("ffprobe"),
+        "whisper": whisper_installed(),
+        "whisper_ready": whisper_model_ready(),
+        "llm": ollama_available(),
+        "llm_provider": active_provider_name(),
+        "whisper_model": settings.whisper_model,
+    }
+
+
+@app.post("/api/videos/upload")
+async def upload_video(file: UploadFile = File(...)) -> dict:
+    try:
+        safe_name = safe_upload_name(file.filename or "")
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    destination = settings.storage / "uploads" / safe_name
+    size = 0
+    try:
+        with destination.open("wb") as output:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                output.write(chunk)
+        return create_video(file.filename or safe_name, destination, size)
+    except VideoToolError as error:
+        destination.unlink(missing_ok=True)
+        raise HTTPException(422, str(error)) from error
+    finally:
+        await file.close()
+
+
+@app.get("/api/videos")
+def videos() -> list[dict]:
+    return list_videos()
+
+
+@app.get("/api/storage")
+def storage_usage() -> dict:
+    total = 0
+    breakdown: dict[str, int] = {}
+    for name in ("uploads", "clips", "thumbnails", "transcripts", "working"):
+        directory = settings.storage / name
+        size = sum(p.stat().st_size for p in directory.rglob("*") if p.is_file()) if directory.exists() else 0
+        breakdown[name] = size
+        total += size
+    db_path = settings.storage / DB_FILENAME
+    db_size = db_path.stat().st_size if db_path.exists() else 0
+    return {"total": total + db_size, "database": db_size, **breakdown}
+
+
+@app.delete("/api/videos/{video_id}")
+def delete_video(video_id: str) -> dict:
+    from .services.video_service import delete_video as remove_video
+
+    if not get_video(video_id):
+        raise HTTPException(404, "Видео не найдено.")
+    return remove_video(video_id)
+
+
+@app.delete("/api/storage/cache")
+def clear_cache(keep_video_id: Optional[str] = None) -> dict:
+    from .services.video_service import clear_cache as sweep_cache
+
+    if keep_video_id and not get_video(keep_video_id):
+        raise HTTPException(404, "Видео не найдено.")
+    return sweep_cache(keep_video_id)
+
+
+@app.get("/api/videos/{video_id}")
+def video(video_id: str) -> dict:
+    return required_video(video_id)
+
+
+@app.get("/api/videos/{video_id}/transcript")
+def transcript(video_id: str) -> dict:
+    required_video(video_id)
+    result = get_transcript(video_id)
+    if not result:
+        raise HTTPException(404, "Транскрипт ещё не создан. Запустите анализ с установленным Whisper.")
+    return result
+
+
+@app.post("/api/videos/{video_id}/analyze")
+def analyze(video_id: str) -> dict:
+    required_video(video_id)
+    try:
+        return create_job(video_id, "ANALYZE")
+    except JobConflictError as error:
+        raise HTTPException(409, str(error)) from error
+
+
+@app.get("/api/videos/{video_id}/highlights")
+def highlights(video_id: str) -> list[dict]:
+    required_video(video_id)
+    return list_highlights(video_id)
+
+
+@app.get("/api/videos/{video_id}/analysis")
+def analysis(video_id: str) -> dict:
+    required_video(video_id)
+    result = get_analysis(video_id)
+    if not result:
+        raise HTTPException(404, "Анализ ещё не запускался.")
+    return result
+
+
+@app.patch("/api/highlights/{highlight_id}")
+def patch_highlight(highlight_id: str, body: HighlightBounds) -> dict:
+    highlight = get_highlight(highlight_id)
+    if not highlight:
+        raise HTTPException(404, "Момент не найден.")
+    video = required_video(highlight["video_id"])
+    try:
+        updated = update_highlight(highlight_id, body.start_time, body.end_time, float(video["duration"]))
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+    if not updated:
+        raise HTTPException(404, "Момент не найден.")
+    return updated
+
+
+@app.get("/api/clips/{clip_id}/stats")
+def clip_stats(clip_id: str) -> dict:
+    if not get_clip(clip_id):
+        raise HTTPException(404, "Клип не найден.")
+    return get_clip_stats(clip_id)
+
+
+@app.put("/api/clips/{clip_id}/stats")
+def save_clip_stats(clip_id: str, body: ClipStatsBody) -> dict:
+    if not get_clip(clip_id):
+        raise HTTPException(404, "Клип не найден.")
+    return put_clip_stats(clip_id, body.views, body.likes)
+
+
+@app.get("/api/jobs/{job_id}")
+def job(job_id: str) -> dict:
+    result = get_job(job_id)
+    if not result:
+        raise HTTPException(404, "Задача не найдена.")
+    return result
+
+
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel(job_id: str) -> dict:
+    result = cancel_job(job_id)
+    if not result:
+        raise HTTPException(404, "Задача не найдена.")
+    return result
+
+
+@app.post("/api/highlights/{highlight_id}/generate")
+def generate(highlight_id: str, subtitles: bool = True, style: str = "crop") -> dict:
+    highlight = get_highlight(highlight_id)
+    if not highlight:
+        raise HTTPException(404, "Момент не найден.")
+    try:
+        return create_job(highlight["video_id"], "RENDER", highlight_id, subtitles=subtitles, style=style)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@app.post("/api/highlights/{highlight_id}/montage")
+def montage(highlight_id: str, subtitles: bool = True, style: str = "crop") -> dict:
+    highlight = get_highlight(highlight_id)
+    if not highlight:
+        raise HTTPException(404, "Момент не найден.")
+    try:
+        return create_job(highlight["video_id"], "MONTAGE", highlight_id, subtitles=subtitles, style=style)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@app.post("/api/videos/{video_id}/montage")
+def montage_video(video_id: str, subtitles: bool = True, style: str = "crop") -> dict:
+    required_video(video_id)
+    highlights = list_highlights(video_id)
+    if not highlights:
+        raise HTTPException(404, "Нет моментов для монтажа. Сначала запустите анализ.")
+    top = max(highlights, key=lambda h: (h["score"], -h["start_time"]))
+    try:
+        return create_job(video_id, "MONTAGE", top["id"], subtitles=subtitles, style=style)
+    except ValueError as error:
+        raise HTTPException(422, str(error)) from error
+
+
+@app.get("/api/clips")
+def clips(video_id: Optional[str] = None) -> list[dict]:
+    return list_clips(video_id)
+
+
+@app.get("/api/clips/{clip_id}")
+def clip(clip_id: str) -> dict:
+    result = get_clip(clip_id)
+    if not result:
+        raise HTTPException(404, "Клип не найден.")
+    return result
+
+
+@app.get("/api/clips/{clip_id}/video")
+def clip_video(clip_id: str):
+    result = get_clip(clip_id)
+    if not result or not Path(result["output_path"]).exists():
+        raise HTTPException(404, "Файл клипа не найден.")
+    return FileResponse(result["output_path"], media_type="video/mp4", filename=f"clip-{clip_id}.mp4")
+
+
+@app.delete("/api/clips/{clip_id}")
+def remove_clip(clip_id: str) -> dict:
+    if not get_clip(clip_id):
+        raise HTTPException(404, "Клип не найден.")
+    return delete_clip(clip_id)
+
+
+@app.get("/api/clips/{clip_id}/thumbnail")
+def clip_thumbnail(clip_id: str):
+    result = get_clip(clip_id)
+    if not result or not Path(result["thumbnail_path"]).exists():
+        raise HTTPException(404, "Превью не найдено.")
+    return FileResponse(result["thumbnail_path"], media_type="image/jpeg")
+
+
+def _youtube() -> YouTubeProvider:
+    return YouTubeProvider()
+
+
+@app.get("/api/publish/youtube/status")
+def youtube_status() -> dict:
+    provider = _youtube()
+    return {
+        "provider": "youtube",
+        "configured": provider.is_configured(),
+        "connected": provider.is_connected(),
+        "channel": provider.channel_title() if provider.is_connected() else None,
+    }
+
+
+@app.get("/api/publish/youtube/auth-url")
+def youtube_auth_url() -> dict:
+    try:
+        return {"url": _youtube().auth_url()}
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/publish/youtube/callback", response_class=HTMLResponse)
+def youtube_callback(code: Optional[str] = None) -> str:
+    if not code:
+        raise HTTPException(400, "OAuth-код не получен.")
+    try:
+        _youtube().exchange_code(code)
+    except Exception as error:
+        raise HTTPException(400, f"Не удалось завершить авторизацию: {error}") from error
+    return "<html><body><h2>YouTube подключён. Вернитесь в KLIPANI и обновите страницу.</h2></body></html>"
+
+
+@app.get("/api/clips/{clip_id}/publications")
+def clip_publications(clip_id: str) -> list[dict]:
+    if not get_clip(clip_id):
+        raise HTTPException(404, "Клип не найден.")
+    return list_publications(clip_id)
+
+
+@app.post("/api/clips/{clip_id}/publish")
+def publish_clip(clip_id: str, body: PublishRequest) -> dict:
+    clip = get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Клип не найден.")
+    provider = _youtube()
+    if not provider.is_connected():
+        raise HTTPException(409, "YouTube не подключён. Пройдите OAuth-авторизацию.")
+    try:
+        result = provider.publish(
+            clip["output_path"],
+            PublishMetadata(title=body.title, description=body.description, privacy=body.privacy),
+        )
+    except RuntimeError as error:
+        raise HTTPException(502, str(error)) from error
+    return save_publication(clip_id, result.provider, result.external_id, result.url)
+
+
+def _tiktok() -> TikTokProvider:
+    return TikTokProvider()
+
+
+@app.get("/api/publish/tiktok/status")
+def tiktok_status() -> dict:
+    provider = _tiktok()
+    return {
+        "provider": "tiktok",
+        "configured": provider.is_configured(),
+        "connected": provider.is_connected(),
+        "channel": None,
+    }
+
+
+@app.get("/api/publish/tiktok/auth-url")
+def tiktok_auth_url() -> dict:
+    try:
+        return {"url": _tiktok().auth_url()}
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/publish/tiktok/callback", response_class=HTMLResponse)
+def tiktok_callback(code: Optional[str] = None, state: Optional[str] = None) -> str:
+    if not code:
+        raise HTTPException(400, "OAuth-код не получен.")
+    try:
+        _tiktok().exchange_code(code)
+    except Exception as error:
+        raise HTTPException(400, f"Не удалось завершить авторизацию: {error}") from error
+    return "<html><body><h2>TikTok подключён. Вернитесь в KLIPANI и обновите страницу.</h2></body></html>"
+
+
+@app.post("/api/clips/{clip_id}/publish-tiktok")
+def publish_clip_tiktok(clip_id: str, body: PublishRequest) -> dict:
+    clip = get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Клип не найден.")
+    provider = _tiktok()
+    if not provider.is_connected():
+        raise HTTPException(409, "TikTok не подключён. Пройдите OAuth-авторизацию.")
+    try:
+        result = provider.publish(
+            clip["output_path"],
+            PublishMetadata(title=body.title, description=body.description, privacy=body.privacy),
+        )
+    except RuntimeError as error:
+        raise HTTPException(502, str(error)) from error
+    return save_publication(clip_id, result.provider, result.external_id, result.url)

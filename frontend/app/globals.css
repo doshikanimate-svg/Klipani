@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply min-h-screen bg-zinc-950 text-zinc-100 antialiased; }
+button { @apply transition disabled:cursor-not-allowed disabled:opacity-50; }
