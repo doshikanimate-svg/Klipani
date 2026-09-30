@@ -7,14 +7,18 @@
   },
   "files": [
     "electron/main.js",
-    "frontend/.next/standalone/**/*",
-    "frontend/.next/static/**/*",
-    "frontend/public/**/*",
-    "build/dist/klipani-backend/**/*"
+    "electron/icon.icns",
+    "frontend/.next/standalone/**/*"
   ],
-  "extraResources": [],
+  "extraResources": [
+    {
+      "from": "build/dist/klipani-backend",
+      "to": "klipani-backend"
+    }
+  ],
   "mac": {
     "category": "public.app-category.video",
+    "icon": "electron/icon.icns",
     "target": ["dmg", "zip"]
   },
   "win": {

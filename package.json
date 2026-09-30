@@ -1,0 +1,14 @@
+{
+  "name": "klipani",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KLIPANI — local studio for vertical clips",
+  "main": "electron/main.js",
+  "scripts": {
+    "dist": "electron-builder --config electron/builder.json --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  }
+}

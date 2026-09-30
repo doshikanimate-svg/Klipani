@@ -25,7 +25,7 @@ function resourcesDir() {
 function backendBinary() {
   const base = isPackaged()
     ? path.join(resourcesDir(), "klipani-backend")
-    : path.join(__dirname, "..", "..", "build", "dist", "klipani-backend");
+    : path.join(__dirname, "..", "build", "dist", "klipani-backend");
   const exe = path.join(base, process.platform === "win32" ? "klipani-backend.exe" : "klipani-backend");
   return fs.existsSync(exe) ? exe : null;
 }
@@ -67,8 +67,8 @@ function spawnBackend() {
 }
 
 function frontendDir() {
-  if (isPackaged()) return path.join(resourcesDir(), "frontend");
-  return path.join(__dirname, "..", ".next", "standalone");
+  if (isPackaged()) return path.join(resourcesDir(), "frontend", ".next", "standalone");
+  return path.join(__dirname, "..", "frontend", ".next", "standalone");
 }
 
 function spawnFrontend() {
