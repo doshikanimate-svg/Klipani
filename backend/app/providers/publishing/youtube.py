@@ -9,7 +9,7 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
-from ...config import ROOT, get_settings
+from ...config import get_settings
 from .base import PublishMetadata, PublishResult, PublishingProvider
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 
 def _resolve(path: str) -> Path:
     candidate = Path(path)
-    return candidate if candidate.is_absolute() else ROOT / candidate
+    return candidate if candidate.is_absolute() else get_settings().storage.parent / candidate
 
 
 class YouTubeProvider(PublishingProvider):

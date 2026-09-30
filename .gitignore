@@ -17,3 +17,8 @@ storage/watermarks/*.auto.png
 .pycache/
 .pytest_cache/
 frontend/tsconfig.tsbuildinfo
+build/dist/
+build/work/
+frontend/public/icon.jpg
+frontend/release/
+electron/node_modules/

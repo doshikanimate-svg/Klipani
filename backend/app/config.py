@@ -29,9 +29,12 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_token_path: str = "storage/tt_token.json"
+    klipani_data: str = ""
 
     @property
     def storage(self) -> Path:
+        if self.klipani_data:
+            return Path(self.klipani_data)
         return ROOT / "storage"
 
 

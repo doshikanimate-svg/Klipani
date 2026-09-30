@@ -63,3 +63,13 @@ def test_combine_scores() -> None:
     assert combine_scores(0, 0, 0) == 0
     assert combine_scores(80, 70, 60) == 74
     assert peak_score(Path("/nonexistent.mp4"), 0, 10) == 50
+
+
+def test_chunk_prompt_renders_from_config() -> None:
+    from app.prompts import reload_prompts, render_chunk_prompt
+
+    reload_prompts()
+    prompt = render_chunk_prompt("[0-5] тест", max_moments=4)
+    assert "до 4 интересных моментов" in prompt
+    assert "[0-5] тест" in prompt
+    assert "ОТРЫВОК:" in prompt

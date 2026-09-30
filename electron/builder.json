@@ -1,0 +1,27 @@
+{
+  "appId": "com.klipani.app",
+  "productName": "KLIPANI",
+  "copyright": "Copyright © 2026 KLIPANI",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "electron/main.js",
+    "frontend/.next/standalone/**/*",
+    "frontend/.next/static/**/*",
+    "frontend/public/**/*",
+    "build/dist/klipani-backend/**/*"
+  ],
+  "extraResources": [],
+  "mac": {
+    "category": "public.app-category.video",
+    "target": ["dmg", "zip"]
+  },
+  "win": {
+    "target": ["nsis"]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true
+  }
+}

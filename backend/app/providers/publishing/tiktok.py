@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from ...config import ROOT, get_settings
+from ...config import get_settings
 from .base import PublishMetadata, PublishResult, PublishingProvider
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class TikTokProvider(PublishingProvider):
 
     def _token_path(self) -> Path:
         path = Path(get_settings().tiktok_token_path)
-        return path if path.is_absolute() else ROOT / path
+        return path if path.is_absolute() else get_settings().storage.parent / path
 
     def is_configured(self) -> bool:
         settings = get_settings()

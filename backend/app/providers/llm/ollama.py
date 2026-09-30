@@ -100,15 +100,10 @@ class OllamaLLMProvider(LLMProvider):
 
     def _query_chunk(self, segments: list[dict], duration: float) -> list[dict]:
         # Compact timestamps: per-segment lines dominate the prompt on long transcripts.
+        from ..prompts import render_chunk_prompt
+
         transcript = "\n".join(f"[{s['start']:.0f}-{s['end']:.0f}] {s['text']}" for s in segments)
-        prompt = (
-            "Ты редактор коротких игровых видео. Найди до 4 интересных моментов в этом отрывке: смешные ситуации, "
-            "фейлы, эмоциональные реакции, неожиданности, панчлайны. Оценивай контекст, не ищи только отдельные слова. "
-            "Категория — СТРОГО одна из: FUNNY, FAIL, REACTION, RAGE, SURPRISE, DIALOGUE, CLUTCH, CHAOS, OTHER. "
-            "Оценка score — от 1 до 100. Причина reason — коротко, до 10 слов. "
-            "Каждый момент должен длиться 8–25 секунд: короткие реплики расширяй контекстом вокруг. "
-            "Верни только JSON по заданной schema. Таймкоды должны быть внутри отрывка.\n\nОТРЫВОК:\n" + transcript
-        )
+        prompt = render_chunk_prompt(transcript, max_moments=self.CHUNK_MAX_MOMENTS)
         settings = get_settings()
         body = json.dumps({"model": settings.llm_model, "prompt": prompt, "stream": False, "think": False,
                            "options": {"num_ctx": 8192, "num_predict": 1200},
