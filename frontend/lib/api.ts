@@ -113,6 +113,13 @@ export const api = {
   thumbnailUrl: (id: string) => `${BASE}/api/clips/${id}/thumbnail`,
   storage: () => request<Record<string, number>>("/api/storage"),
   deleteVideo: (id: string) => request<{ deleted: boolean; removed_files: number }>(`/api/videos/${id}`, { method: "DELETE" }),
+  licenseStatus: () => request<{ active: boolean; plan?: string; exp?: number } | { active: boolean }>("/api/license"),
+  licenseActivate: (key: string) =>
+    request<{ active: boolean; plan: string; exp: number }>(`/api/license`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key }),
+    }),
   clearCache: (keepVideoId?: string) =>
     request<{ deleted_videos: number; removed_files: number; freed_bytes: number }>(
       `/api/storage/cache${keepVideoId ? `?keep_video_id=${keepVideoId}` : ""}`,

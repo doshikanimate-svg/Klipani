@@ -22,3 +22,5 @@ build/work/
 frontend/public/icon.jpg
 frontend/release/
 electron/node_modules/
+release/
+bot/bot.db

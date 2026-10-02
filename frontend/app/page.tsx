@@ -58,6 +58,9 @@ export default function Home() {
   const [storage, setStorage] = useState<Record<string, number> | undefined>();
   const [wm, setWm] = useState<Record<string, string>>({});
   const [wmSaved, setWmSaved] = useState(false);
+  const [license, setLicense] = useState<{ active: boolean; plan?: string; exp?: number }>({ active: false });
+  const [licenseKey, setLicenseKey] = useState("");
+  const [licenseBusy, setLicenseBusy] = useState(false);
   const [health, setHealth] = useState<Health | undefined>();
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
@@ -70,6 +73,7 @@ export default function Home() {
     api.ytStatus().then(setYt).catch(() => undefined);
     api.storage().then(setStorage).catch(() => undefined);
     api.appSettings().then(setWm).catch(() => undefined);
+    api.licenseStatus().then(setLicense).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -201,6 +205,23 @@ export default function Home() {
       setWmSaved(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось сохранить настройки.");
+    }
+  };
+
+  const activateLicense = async () => {
+    if (!licenseKey.trim()) {
+      setError("Вставьте лицензионный ключ из Telegram-бота.");
+      return;
+    }
+    try {
+      setLicenseBusy(true);
+      setError(undefined);
+      setLicense(await api.licenseActivate(licenseKey.trim()));
+      setLicenseKey("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось активировать ключ.");
+    } finally {
+      setLicenseBusy(false);
     }
   };
 
@@ -666,6 +687,49 @@ export default function Home() {
           </div>
         </details>
       )}
+
+      <details className="mt-6 rounded-2xl border border-zinc-800/80 bg-brand-panel">
+        <summary className="flex cursor-pointer list-none items-center justify-between p-5">
+          <span>
+            <span className="text-xs font-bold tracking-widest text-zinc-500">ДОСТУП</span>
+            <span className="ml-3 text-base font-bold">
+              Подписка{" "}
+              {license.active ? (
+                <span className="text-brand-cyan">· активна{license.plan ? ` (${license.plan})` : ""}</span>
+              ) : (
+                <span className="text-zinc-600">· нет ключа</span>
+              )}
+            </span>
+          </span>
+          <span className="text-zinc-500">▾</span>
+        </summary>
+        <div className="px-5 pb-5">
+          {license.active && license.exp ? (
+            <p className="text-sm text-zinc-400">
+              Активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}. Новый ключ можно вставить ниже — старый заменится.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-400">
+              Купите подписку в Telegram-боте и вставьте ключ сюда. Оплата пока тестовая (заглушка).
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <input
+              value={licenseKey}
+              onChange={(e) => setLicenseKey(e.target.value)}
+              placeholder="KLIP-..."
+              className="flex-1 rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 font-mono text-sm text-zinc-200"
+            />
+            <button
+              disabled={licenseBusy}
+              onClick={activateLicense}
+              className="rounded-xl bg-zinc-100 px-4 py-2 text-sm font-bold text-black hover:bg-white disabled:opacity-50"
+            >
+              {licenseBusy ? "…" : "Активировать"}
+            </button>
+          </div>
+        </div>
+      </details>
 
       {clips.length > 0 && (
         <section className="mt-10 pb-12">

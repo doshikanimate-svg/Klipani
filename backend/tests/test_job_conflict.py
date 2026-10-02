@@ -126,3 +126,24 @@ def test_delete_clip_removes_files_and_rows(tmp_path) -> None:
     with database() as db:
         assert db.execute("SELECT * FROM clips WHERE id='clipx'").fetchone() is None
         assert db.execute("SELECT * FROM clip_stats WHERE clip_id='clipx'").fetchone() is None
+
+
+def test_license_roundtrip_and_tamper(monkeypatch) -> None:
+    import app.services.license_service as lic
+
+    monkeypatch.setenv("LICENSE_SECRET", "test-secret-123")
+    lic.get_settings.cache_clear()
+    try:
+        issued = lic.issue_license(12345, "trial")
+        assert issued["key"].startswith("KLIP-")
+        info = lic.verify_license(issued["key"])
+        assert info is not None and info["plan"] == "trial" and info["telegram_id"] == 12345
+        assert lic.verify_license(issued["key"][:-2] + "xx") is None
+        assert lic.verify_license("garbage") is None
+        try:
+            lic.issue_license(1, "nope")
+            raise AssertionError("expected ValueError")
+        except ValueError:
+            pass
+    finally:
+        lic.get_settings.cache_clear()

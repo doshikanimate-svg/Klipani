@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_token_path: str = "storage/tt_token.json"
+    telegram_bot_token: str = ""
+    license_secret: str = ""
     klipani_data: str = ""
 
     @property

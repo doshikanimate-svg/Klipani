@@ -62,6 +62,41 @@ class ClipStatsBody(BaseModel):
     likes: int = Field(default=0, ge=0)
 
 
+class LicenseBody(BaseModel):
+    key: str = Field(..., min_length=10, max_length=500)
+
+
+@app.get("/api/license")
+def license_status() -> dict:
+    from .services import app_settings as settings_store
+    from .services.license_service import verify_license
+
+    stored = settings_store.get_all().get("license_key", "")
+    try:
+        info = verify_license(stored) if stored else None
+    except RuntimeError:
+        info = None
+    if not info:
+        return {"active": False, "plan": None, "exp": None}
+    return {"active": True, **info}
+
+
+@app.post("/api/license")
+def license_activate(body: LicenseBody) -> dict:
+    from .services import app_settings as settings_store
+    from .services.license_service import verify_license
+
+    key = body.key.strip()
+    try:
+        info = verify_license(key)
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)) from error
+    if not info:
+        raise HTTPException(400, "Ключ недействителен или истёк.")
+    settings_store.update({"license_key": key})
+    return {"active": True, **info}
+
+
 @app.get("/api/settings")
 def read_settings() -> dict:
     return get_app_settings()
