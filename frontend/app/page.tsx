@@ -873,9 +873,17 @@ export default function Home() {
                           onClick={() => sendToTelegram(c)}
                           disabled={tgBusy === c.id}
                           title="Отправить MP4 в Telegram-бота — забрать с телефона"
-                          className="aspect-square rounded-lg bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                          className="flex aspect-square items-center justify-center rounded-lg bg-zinc-900 px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                         >
-                          {tgBusy === c.id ? "…" : tgSent[c.id] ? "✓" : "✈"}
+                          {tgBusy === c.id ? (
+                            "…"
+                          ) : tgSent[c.id] ? (
+                            "✓"
+                          ) : (
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                              <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
+                            </svg>
+                          )}
                         </button>
                       </div>
                       {(() => {
