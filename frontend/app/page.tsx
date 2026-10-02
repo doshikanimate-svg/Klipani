@@ -55,6 +55,8 @@ export default function Home() {
   const [history, setHistory] = useState<Clip[]>([]);
   const [pubs, setPubs] = useState<Record<string, Publication[]>>({});
   const [pubBusy, setPubBusy] = useState<string>();
+  const [tgBusy, setTgBusy] = useState<string>();
+  const [tgSent, setTgSent] = useState<Record<string, boolean>>({});
   const [storage, setStorage] = useState<Record<string, number> | undefined>();
   const [wm, setWm] = useState<Record<string, string>>({});
   const [wmSaved, setWmSaved] = useState(false);
@@ -344,6 +346,18 @@ export default function Home() {
     }
   };
 
+  const sendToTelegram = async (clip: Clip) => {
+    try {
+      setTgBusy(clip.id);
+      setError(undefined);
+      await api.sendTelegram(clip.id);
+      setTgSent((prev) => ({ ...prev, [clip.id]: true }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось отправить в Telegram.");
+    } finally {
+      setTgBusy(undefined);
+    }
+  };
   const openPublish = async (clip: Clip) => {
     if (pubOpen === clip.id) {
       setPubOpen(undefined);
@@ -855,6 +869,14 @@ export default function Home() {
                             {p === "youtube" ? "YouTube" : "TikTok (скоро)"}
                           </button>
                         ))}
+                        <button
+                          onClick={() => sendToTelegram(c)}
+                          disabled={tgBusy === c.id}
+                          title="Отправить MP4 в Telegram-бота — забрать с телефона"
+                          className="aspect-square rounded-lg bg-zinc-900 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                        >
+                          {tgBusy === c.id ? "…" : tgSent[c.id] ? "✓" : "✈"}
+                        </button>
                       </div>
                       {(() => {
                         const st = pubProvider === "youtube" ? yt : tt;

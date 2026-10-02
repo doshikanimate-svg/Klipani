@@ -101,6 +101,8 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, description, privacy }),
     }),
+  sendTelegram: (clipId: string) =>
+    request<{ sent_to: number[] }>(`/api/clips/${clipId}/send-telegram`, { method: "POST" }),
   clipStats: (clipId: string) => request<{ clip_id: string; views: number; likes: number }>(`/api/clips/${clipId}/stats`),
   deleteClip: (clipId: string) => request<{ deleted: boolean; removed_files: number }>(`/api/clips/${clipId}`, { method: "DELETE" }),
   saveStats: (clipId: string, views: number, likes: number) =>

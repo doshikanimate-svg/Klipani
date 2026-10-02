@@ -452,3 +452,19 @@ def publish_clip_tiktok(clip_id: str, body: PublishRequest) -> dict:
     except RuntimeError as error:
         raise HTTPException(502, str(error)) from error
     return save_publication(clip_id, result.provider, result.external_id, result.url)
+
+
+@app.post("/api/clips/{clip_id}/send-telegram")
+def send_clip_telegram(clip_id: str) -> dict:
+    from .services.telegram_send import known_chat_ids, send_clip
+
+    clip = get_clip(clip_id)
+    if not clip:
+        raise HTTPException(404, "Клип не найден.")
+    if not known_chat_ids():
+        raise HTTPException(409, "Бот никого не знает: откройте бота в Telegram и нажмите /start.")
+    try:
+        result = send_clip(clip["output_path"], caption=f"🎬 {clip_id[:6]}")
+    except RuntimeError as error:
+        raise HTTPException(502, str(error)) from error
+    return result
