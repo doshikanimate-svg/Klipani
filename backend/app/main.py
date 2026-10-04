@@ -33,6 +33,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     initialize()
+    from .services.dapayments import start_poller
+
+    start_poller()
     yield
 
 
@@ -468,3 +471,43 @@ def send_clip_telegram(clip_id: str) -> dict:
     except RuntimeError as error:
         raise HTTPException(502, str(error)) from error
     return result
+
+
+@app.get("/api/payments/donationalerts/status")
+def da_status() -> dict:
+    from .services import dapayments as da
+
+    connected = da.is_connected()
+    return {"provider": "donationalerts", "configured": da.is_configured(), "connected": connected}
+
+
+@app.get("/api/payments/donationalerts/auth-url")
+def da_auth_url() -> dict:
+    from .services import dapayments as da
+
+    try:
+        return {"url": da.auth_url()}
+    except RuntimeError as error:
+        raise HTTPException(400, str(error)) from error
+
+
+@app.get("/api/payments/donationalerts/callback", response_class=HTMLResponse)
+def da_callback(code: Optional[str] = None) -> str:
+    from .services import dapayments as da
+
+    if not code:
+        raise HTTPException(400, "OAuth-код не получен.")
+    try:
+        da.exchange_code(code)
+    except Exception as error:
+        raise HTTPException(400, f"Не удалось завершить авторизацию: {error}") from error
+    return "<html><body><h2>DonationAlerts подключён. Поллер донатов запущен.</h2></body></html>"
+
+
+@app.post("/api/payments/donationalerts/check")
+def da_check() -> dict:
+    from .services import dapayments as da
+
+    if not da.is_connected():
+        raise HTTPException(409, "DonationAlerts не подключён.")
+    return {"issued": da.poll_once()}

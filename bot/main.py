@@ -184,8 +184,24 @@ async def on_plan(callback: CallbackQuery) -> None:
 
 
 async def on_pay(callback: CallbackQuery) -> None:
+    from app.services import dapayments as da
+
     plan_id = callback.data.split(":", 1)[1]
     info = PLANS[plan_id]
+    settings = get_settings()
+    if da.is_configured() and settings.da_donate_url:
+        code = da.create_payment_code(callback.from_user.id, plan_id)
+        await callback.message.edit_text(
+            f"💳 Оплата подписки <b>{info['title']}</b>: <b>{info['price_rub']} ₽</b>\n\n"
+            f"1. Перейдите по ссылке: {settings.da_donate_url}\n"
+            f"2. Задонатьте <b>{info['price_rub']} ₽</b> (или больше)\n"
+            f"3. В сообщении к донату укажите код: <code>{code}</code>\n\n"
+            "Ключ придёт сюда автоматически в течение пары минут после доната.",
+            parse_mode="HTML",
+            reply_markup=back_menu_keyboard(),
+        )
+        await callback.answer()
+        return
     invoice_id = f"TEST-{callback.from_user.id}-{int(time.time())}"
     # STUB: real acquiring goes here (provider invoice + webhook callback).
     await callback.message.edit_text(

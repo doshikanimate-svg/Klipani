@@ -147,3 +147,33 @@ def test_license_roundtrip_and_tamper(monkeypatch) -> None:
             pass
     finally:
         lic.get_settings.cache_clear()
+
+
+def test_da_code_extract_and_match(monkeypatch, tmp_path) -> None:
+    import sqlite3
+    import app.services.dapayments as da
+    import app.services.license_service as lic
+
+    assert da.extract_code("спасибо KLP-AB12CD лучший") == "KLP-AB12CD"
+    assert da.extract_code("без кода") is None
+    assert da.extract_code("") is None
+
+    monkeypatch.setenv("LICENSE_SECRET", "test-secret-xyz")
+    lic.get_settings.cache_clear()
+    monkeypatch.setattr(da, "_bot_db", lambda: tmp_path / "test-bot.db")
+    monkeypatch.setattr(da, "_notify_telegram", lambda *a: None)
+    try:
+        code = da.create_payment_code(777, "month")
+        assert code.startswith("KLP-") and len(code) == 10
+        assert da.process_donations([
+            {"id": 1, "amount": 0, "currency": "RUB", "message": "просто донат"},
+            {"id": 2, "amount": 100, "currency": "RUB", "message": f"вот код {code}"},
+        ]) == 0  # недоплата: 100 < 990
+        assert da.process_donations([
+            {"id": 3, "amount": 990, "currency": "RUB", "message": f"оплата {code}"},
+        ]) == 1
+        assert da.process_donations([
+            {"id": 3, "amount": 990, "currency": "RUB", "message": f"оплата {code}"},
+        ]) == 0  # повтор не засчитывается дважды
+    finally:
+        lic.get_settings.cache_clear()

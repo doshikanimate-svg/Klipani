@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     tiktok_token_path: str = "storage/tt_token.json"
     telegram_bot_token: str = ""
     license_secret: str = ""
+    da_client_id: str = ""
+    da_client_secret: str = ""
+    da_token_path: str = "storage/da_token.json"
+    da_donate_url: str = ""
     klipani_data: str = ""
 
     @property

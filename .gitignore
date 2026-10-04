@@ -8,6 +8,7 @@ storage/transcripts/
 storage/working/
 storage/*.db
 storage/yt_token.json
+storage/da_token.json
 storage/tt_token.json
 storage/yt_client.json
 storage/watermarks/*.auto.png

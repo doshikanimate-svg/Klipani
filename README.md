@@ -89,6 +89,14 @@ cp .env.example .env
 
 Оплата сейчас — заглушка (деньги не списываются). Точка интеграции эквайринга: `bot/main.py::on_pay` (счёт) — позже заменить на провайдера + вебхук подтверждения, выдача ключа (`issue_license`) не меняется. Проверка ключа офлайновая (HMAC), сервер не нужен.
 
+## Оплата через DonationAlerts (автовыдача ключей)
+
+1. Создайте OAuth-приложение: donationalerts.com → настройки → API (client_id/secret), redirect URI: `http://127.0.0.1:8000/api/payments/donationalerts/callback`;
+2. В `.env`: `DA_CLIENT_ID=...`, `DA_CLIENT_SECRET=...`, `DA_DONATE_URL=https://www.donationalerts.com/r/ваш_ник`;
+3. Подключите в браузере: `GET /api/payments/donationalerts/auth-url` → OAuth → токен в `storage/da_token.json`;
+4. В боте кнопка «Купить» показывает код `KLP-XXXXXX`: пользователь донатит сумму тарифа с этим кодом в сообщении;
+5. Фоновый поллер (раз в минуту) находит донат, сверяет сумму, выпускает ключ и присылает его в Telegram автоматически. Повторная обработка исключена, недоплата игнорируется.
+
 ## Мобильный компаньон (та же Wi-Fi сеть)
 1. Узнайте IP мака: `ipconfig getifaddr en0` (например `192.168.1.10`);
 2. Запустите бэкенд на всех интерфейсах: `python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000`;
