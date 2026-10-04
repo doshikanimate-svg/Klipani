@@ -38,34 +38,82 @@ def _db() -> sqlite3.Connection:
     return connection
 
 
+SUPPORT_URL = "https://t.me/LiveForWork1"
+CHANNEL_URL = "https://t.me/Klipani_of"
+
+ABOUT_TEXT = (
+    "📱 <b>KLIPANI</b> — студия вертикальных клипов.\n\n"
+    "Загружаете запись стрима — получаете готовые ролики для TikTok, Shorts и Reels: "
+    "умный поиск моментов, субтитры-караоке, монтаж, водяной знак и публикация в один клик.\n\n"
+    "Новости и обновления: @Klipani_of"
+)
+
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛟 Поддержка", url=SUPPORT_URL)],
+        [InlineKeyboardButton(text="ℹ️ О проекте", callback_data="about")],
+        [InlineKeyboardButton(text="💳 Тарифы", callback_data="plans")],
+        [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy")],
+    ])
+
+
+def back_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← В меню", callback_data="menu")],
+    ])
+
+
 def plans_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=info["title"], callback_data=f"plan:{plan_id}")]
         for plan_id, info in PLANS.items()
-    ])
+    ] + [[InlineKeyboardButton(text="← В меню", callback_data="menu")]])
 
 
 def pay_keyboard(plan_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Оплатить*", callback_data=f"pay:{plan_id}")],
-        [InlineKeyboardButton(text="← Назад", callback_data="plans")],
+        [InlineKeyboardButton(text="← В меню", callback_data="menu")],
     ])
 
 
 def confirm_keyboard(plan_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Я оплатил (тест)", callback_data=f"confirm:{plan_id}")],
-        [InlineKeyboardButton(text="← Назад", callback_data="plans")],
+        [InlineKeyboardButton(text="← В меню", callback_data="menu")],
     ])
 
 
 async def cmd_start(message: Message) -> None:
     await message.answer(
-        "👋 Это бот подписки <b>KLIPANI</b> — студии вертикальных клипов.\n\n"
-        "Выберите тариф, оплатите и получите лицензионный ключ для приложения.",
+        "👋 Привет! Я бот <b>KLIPANI</b> — студии вертикальных клипов.\n\n"
+        "Здесь можно выбрать тариф, оформить подписку и получить лицензионный ключ "
+        "для приложения. Если что-то непонятно — загляните в «О проекте» или напишите в поддержку.",
         parse_mode="HTML",
-        reply_markup=plans_keyboard(),
+        reply_markup=main_menu_keyboard(),
     )
+
+
+async def on_menu(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "Главное меню <b>KLIPANI</b> — чем помочь?",
+        parse_mode="HTML",
+        reply_markup=main_menu_keyboard(),
+    )
+    await callback.answer()
+
+
+async def on_about(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        ABOUT_TEXT,
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📣 Telegram-канал", url=CHANNEL_URL)],
+            [InlineKeyboardButton(text="← В меню", callback_data="menu")],
+        ]),
+    )
+    await callback.answer()
 
 
 async def cmd_status(message: Message) -> None:
@@ -99,7 +147,24 @@ async def cmd_mykey(message: Message) -> None:
 
 
 async def on_plans(callback: CallbackQuery) -> None:
-    await callback.message.edit_text("Выберите тариф:", reply_markup=plans_keyboard())
+    await callback.message.edit_text(
+        "💳 <b>Тарифы KLIPANI:</b>\n\n" + "\n".join(
+            f"• <b>{info['title']}</b> — {info['days']} дней"
+            for info in PLANS.values()
+        ) + "\n\nНажмите на тариф, чтобы оформить.",
+        parse_mode="HTML",
+        reply_markup=plans_keyboard(),
+    )
+    await callback.answer()
+
+
+async def on_buy(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "🛒 <b>Покупка подписки:</b> выберите тариф ниже — после тестовой оплаты "
+        "бот сразу выдаст лицензионный ключ.",
+        parse_mode="HTML",
+        reply_markup=plans_keyboard(),
+    )
     await callback.answer()
 
 
@@ -169,7 +234,10 @@ async def main() -> None:
     dispatcher.message.register(cmd_start, CommandStart())
     dispatcher.message.register(cmd_status, Command("status"))
     dispatcher.message.register(cmd_mykey, Command("mykey"))
+    dispatcher.callback_query.register(on_menu, F.data == "menu")
+    dispatcher.callback_query.register(on_about, F.data == "about")
     dispatcher.callback_query.register(on_plans, F.data == "plans")
+    dispatcher.callback_query.register(on_buy, F.data == "buy")
     dispatcher.callback_query.register(on_plan, F.data.startswith("plan:"))
     dispatcher.callback_query.register(on_pay, F.data.startswith("pay:"))
     dispatcher.callback_query.register(on_confirm, F.data.startswith("confirm:"))
