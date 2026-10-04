@@ -3,7 +3,50 @@
 @tailwind utilities;
 
 body { @apply min-h-screen bg-brand-ink text-zinc-100 antialiased; }
-button { @apply transition disabled:cursor-not-allowed disabled:opacity-50; }
+button { @apply transition-all duration-200 active:scale-[.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100; }
 ::selection { background: #00F2EA; color: #000; }
 input, select, textarea { @apply outline-none focus:border-brand-cyan/60; }
 video::-webkit-media-controls-panel { background-image: linear-gradient(transparent, rgba(0,0,0,.7)); }
+
+/* ---- liveliness ---- */
+@keyframes kl-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes kl-pop {
+  0% { transform: scale(.96); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes kl-shimmer {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+@keyframes kl-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .45; transform: scale(.8); }
+}
+.anim-rise { animation: kl-rise .5s cubic-bezier(.22,1,.36,1) both; }
+.anim-pop { animation: kl-pop .25s ease-out both; }
+/* primary CTA glow on hover */
+.btn-glow:hover:not(:disabled) { box-shadow: 0 0 24px rgba(0,242,234,.35); transform: translateY(-1px); }
+.btn-glow-pink:hover:not(:disabled) { box-shadow: 0 0 24px rgba(254,44,85,.4); transform: translateY(-1px); }
+/* cards lift on hover */
+.card-lift { transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease; }
+.card-lift:hover { transform: translateY(-3px); border-color: rgba(0,242,234,.25); box-shadow: 0 12px 32px rgba(0,0,0,.45); }
+/* progress bar travelling highlight */
+.progress-shimmer { position: relative; overflow: hidden; }
+.progress-shimmer::after {
+  content: ""; position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+  animation: kl-shimmer 1.6s ease-in-out infinite;
+}
+/* live status dot */
+.dot-live { animation: kl-pulse-dot 1.8s ease-in-out infinite; }
+/* icon buttons: subtle grow */
+.icon-btn { transition: transform .2s ease, color .2s ease, background-color .2s ease; }
+.icon-btn:hover { transform: scale(1.12); }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-rise, .anim-pop, .progress-shimmer::after, .dot-live { animation: none; }
+  .btn-glow:hover:not(:disabled), .btn-glow-pink:hover:not(:disabled), .card-lift:hover, .icon-btn:hover { transform: none; }
+}

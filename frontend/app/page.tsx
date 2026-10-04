@@ -453,7 +453,7 @@ export default function Home() {
         })}
       </nav>
 
-      <section className="rounded-3xl border border-zinc-800/80 bg-brand-panel p-6 shadow-2xl shadow-black/40 md:p-8">
+      <section className="anim-rise rounded-3xl border border-zinc-800/80 bg-brand-panel p-6 shadow-2xl shadow-black/40 md:p-8">
         <div
           onDragOver={(e: DragEvent) => e.preventDefault()}
           onDrop={(e: DragEvent) => {
@@ -499,7 +499,7 @@ export default function Home() {
                   Удалить
                 </button>
               )}
-              <button disabled={busy} onClick={analyze} className="rounded-xl bg-brand-cyan px-6 py-3 font-bold text-black hover:brightness-110 disabled:opacity-50">
+              <button disabled={busy} onClick={analyze} className="btn-glow rounded-xl bg-brand-cyan px-6 py-3 font-bold text-black hover:brightness-110 disabled:opacity-50">
                 {highlights.length > 0 ? "Анализ заново" : "Найти моменты"}
               </button>
             </div>
@@ -512,7 +512,7 @@ export default function Home() {
               <span className="text-zinc-300">{stepLabel(job.current_step)}</span>
               <span className="font-mono text-zinc-400">{job.progress}%</span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-zinc-800">
+            <div className="progress-shimmer h-2 overflow-hidden rounded-full bg-zinc-800">
               <div className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-pink transition-all" style={{ width: `${job.progress}%` }} />
             </div>
           </div>
@@ -551,7 +551,7 @@ export default function Home() {
                 disabled={busy}
                 onClick={montageVideo}
                 title="Склеить лучшие моменты всего видео в один клип"
-                className="rounded-xl bg-brand-pink px-4 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+                className="btn-glow-pink rounded-xl bg-brand-pink px-4 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
               >
                 Собрать монтаж
               </button>
@@ -563,7 +563,7 @@ export default function Home() {
           {analysis &&
             (analysis.has_transcript && analysis.llm_provider === "ollama" ? (
               <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-brand-cyan/10 px-3 py-1 text-xs text-brand-cyan">
-                <span className="h-1.5 w-1.5 rounded-full bg-brand-cyan" /> Whisper + Ollama · {analysis.segments} сегментов речи
+                <span className="dot-live h-1.5 w-1.5 rounded-full bg-brand-cyan" /> Whisper + Ollama · {analysis.segments} сегментов речи
               </p>
             ) : analysis.has_transcript ? (
               <p className="mt-3 inline-block rounded-full bg-amber-500/10 px-3 py-1 text-xs text-amber-300">
@@ -576,7 +576,7 @@ export default function Home() {
             ))}
           <div className="mt-5 grid gap-4 md:grid-cols-3">
             {highlights.map((h, i) => (
-              <article key={h.id} className="flex flex-col rounded-2xl border border-zinc-800/80 bg-brand-panel p-5">
+              <article key={h.id} style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }} className="card-lift anim-rise flex flex-col rounded-2xl border border-zinc-800/80 bg-brand-panel p-5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-zinc-800 text-xs font-bold text-zinc-300">#{i + 1}</span>
@@ -787,8 +787,8 @@ export default function Home() {
             </p>
           )}
           <div className="mt-5 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {sortedClips.map((c) => (
-              <article key={c.id} className="group overflow-hidden rounded-2xl border border-zinc-800/80 bg-brand-panel transition hover:border-zinc-700">
+            {sortedClips.map((c, i) => (
+              <article key={c.id} style={{ animationDelay: `${Math.min(i, 8) * 60}ms` }} className="card-lift anim-rise group overflow-hidden rounded-2xl border border-zinc-800/80 bg-brand-panel">
                 <div className="relative">
                   <video className="aspect-[9/16] w-full bg-black" controls preload="metadata" poster={api.thumbnailUrl(c.id)} src={api.videoUrl(c.id)} />
                   {c.kind === "MONTAGE" && (
@@ -799,7 +799,7 @@ export default function Home() {
                   <button
                     onClick={() => removeClip(c)}
                     title="Удалить клип с диска"
-                    className="absolute right-3 top-3 rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-400 opacity-0 transition group-hover:opacity-100 hover:text-red-300"
+                    className="icon-btn absolute right-3 top-3 rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-400 opacity-0 group-hover:opacity-100 hover:text-red-300"
                   >
                     ✕
                   </button>
@@ -854,7 +854,7 @@ export default function Home() {
                     </button>
                   </div>
                   {pubOpen === c.id && (
-                    <div className="mt-3 rounded-xl border border-zinc-800 bg-zinc-950 p-3">
+                    <div className="anim-pop mt-3 rounded-xl border border-zinc-800 bg-zinc-950 p-3">
                       <div className="mb-3 flex gap-2">
                         {(["youtube", "tiktok"] as const).map((p) => (
                           <button
@@ -873,7 +873,7 @@ export default function Home() {
                           onClick={() => sendToTelegram(c)}
                           disabled={tgBusy === c.id}
                           title="Отправить MP4 в Telegram-бота — забрать с телефона"
-                          className="flex aspect-square items-center justify-center rounded-lg bg-zinc-900 px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                          className="icon-btn flex aspect-square items-center justify-center rounded-lg bg-zinc-900 px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
                         >
                           {tgBusy === c.id ? (
                             "…"
@@ -901,7 +901,7 @@ export default function Home() {
                               <button
                                 onClick={connectProvider}
                                 disabled={st && !st.configured}
-                                className="mt-2 w-full rounded-lg bg-brand-pink px-3 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+                                className="btn-glow-pink mt-2 w-full rounded-lg bg-brand-pink px-3 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
                               >
                                 Подключить {pubProvider === "youtube" ? "YouTube" : "TikTok"}
                               </button>
@@ -936,7 +936,7 @@ export default function Home() {
                               <button
                                 disabled={pubBusy === c.id}
                                 onClick={() => publishClip(c)}
-                                className="flex-1 rounded-lg bg-brand-pink px-3 py-1.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+                                className="btn-glow-pink flex-1 rounded-lg bg-brand-pink px-3 py-1.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
                               >
                                 {pubBusy === c.id ? "Загрузка…" : "Опубликовать"}
                               </button>
