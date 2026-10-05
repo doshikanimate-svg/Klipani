@@ -25,3 +25,4 @@ frontend/release/
 electron/node_modules/
 release/
 bot/bot.db
+/node_modules
