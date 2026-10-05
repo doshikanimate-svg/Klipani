@@ -48,6 +48,8 @@ def _token_path() -> Path:
 
 def _redirect_uri() -> str:
     settings = get_settings()
+    if settings.public_url:
+        return settings.public_url.rstrip("/") + "/api/payments/donationalerts/callback"
     return f"http://{settings.backend_host}:{settings.backend_port}/api/payments/donationalerts/callback"
 
 
