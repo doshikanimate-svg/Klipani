@@ -177,3 +177,12 @@ def test_da_code_extract_and_match(monkeypatch, tmp_path) -> None:
         ]) == 0  # повтор не засчитывается дважды
     finally:
         lic.get_settings.cache_clear()
+
+
+def test_telegram_webhook_guards() -> None:
+    initialize()
+    with TestClient(app) as client:
+        response = client.post("/api/bot/webhook", json={"update_id": 1})
+        assert response.status_code in (403, 503)
+        check = client.post("/api/payments/donationalerts/check")
+        assert check.status_code == 409

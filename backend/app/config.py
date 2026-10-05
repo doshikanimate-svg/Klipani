@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     tiktok_token_path: str = "storage/tt_token.json"
     telegram_bot_token: str = ""
     license_secret: str = ""
+    telegram_webhook_secret: str = ""
+    public_url: str = ""
     da_client_id: str = ""
     da_client_secret: str = ""
     da_token_path: str = "storage/da_token.json"

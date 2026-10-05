@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
@@ -36,7 +36,46 @@ async def lifespan(app: FastAPI):
     from .services.dapayments import start_poller
 
     start_poller()
-    yield
+    bot_handle = await _start_telegram_webhook()
+    try:
+        yield
+    finally:
+        await _stop_telegram_webhook(bot_handle)
+
+
+async def _start_telegram_webhook():
+    """On hosting (PUBLIC_URL set): Telegram delivers updates via webhook.
+
+    Locally (no PUBLIC_URL): nothing starts here, use bot/main.py polling.
+    """
+    settings = get_settings()
+    if not (settings.public_url and settings.telegram_bot_token):
+        return None
+    try:
+        import sys
+
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bot"))
+        from main import create_bot  # noqa: E402
+
+        bot, dispatcher = create_bot()
+        url = settings.public_url.rstrip("/") + "/api/bot/webhook"
+        await bot.set_webhook(url, secret_token=settings.telegram_webhook_secret or None)
+        app.state.bot = bot
+        app.state.dispatcher = dispatcher
+        return bot
+    except Exception as error:
+        print(f"telegram webhook not started: {error}")
+        return None
+
+
+async def _stop_telegram_webhook(bot_handle) -> None:
+    if bot_handle is None:
+        return
+    try:
+        await bot_handle.delete_webhook()
+        await bot_handle.session.close()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="KLIPANI", version="0.3.0", lifespan=lifespan)
@@ -502,6 +541,24 @@ def da_callback(code: Optional[str] = None) -> str:
     except Exception as error:
         raise HTTPException(400, f"Не удалось завершить авторизацию: {error}") from error
     return "<html><body><h2>DonationAlerts подключён. Поллер донатов запущен.</h2></body></html>"
+
+
+@app.post("/api/bot/webhook")
+async def telegram_webhook(request: Request) -> dict:
+    settings = get_settings()
+    if settings.telegram_webhook_secret:
+        secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if secret != settings.telegram_webhook_secret:
+            raise HTTPException(403, "Bad webhook secret.")
+    dispatcher = getattr(app.state, "dispatcher", None)
+    bot = getattr(app.state, "bot", None)
+    if dispatcher is None or bot is None:
+        raise HTTPException(503, "Webhook-режим не активен.")
+    from aiogram.types import Update
+
+    update = Update.model_validate(await request.json())
+    await dispatcher.feed_update(bot, update)
+    return {"ok": True}
 
 
 @app.post("/api/payments/donationalerts/check")

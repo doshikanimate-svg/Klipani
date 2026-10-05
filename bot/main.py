@@ -245,6 +245,16 @@ async def main() -> None:
         raise SystemExit("TELEGRAM_BOT_TOKEN не задан в .env (токен от @BotFather).")
     if not settings.license_secret:
         raise SystemExit("LICENSE_SECRET не задан в .env (openssl rand -hex 32).")
+    bot, dispatcher = create_bot()
+    logger.info("bot polling started")
+    await dispatcher.start_polling(bot)
+
+
+def create_bot():
+    """Shared Bot + Dispatcher for polling (local) and webhooks (hosting)."""
+    from aiogram import Bot, Dispatcher
+
+    settings = get_settings()
     bot = Bot(token=settings.telegram_bot_token)
     dispatcher = Dispatcher()
     dispatcher.message.register(cmd_start, CommandStart())
@@ -257,8 +267,7 @@ async def main() -> None:
     dispatcher.callback_query.register(on_plan, F.data.startswith("plan:"))
     dispatcher.callback_query.register(on_pay, F.data.startswith("pay:"))
     dispatcher.callback_query.register(on_confirm, F.data.startswith("confirm:"))
-    logger.info("bot polling started")
-    await dispatcher.start_polling(bot)
+    return bot, dispatcher
 
 
 if __name__ == "__main__":
