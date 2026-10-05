@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -36,11 +37,14 @@ async def lifespan(app: FastAPI):
     from .services.dapayments import start_poller
 
     start_poller()
-    bot_handle = await _start_telegram_webhook()
+    # Webhook setup does network I/O (Telegram API) — must not block startup,
+    # or the hoster kills the process on port-scan timeout.
+    webhook_task = asyncio.create_task(_start_telegram_webhook())
     try:
         yield
     finally:
-        await _stop_telegram_webhook(bot_handle)
+        webhook_task.cancel()
+        await _stop_telegram_webhook(getattr(app.state, "bot", None))
 
 
 async def _start_telegram_webhook():
@@ -48,6 +52,8 @@ async def _start_telegram_webhook():
 
     Locally (no PUBLIC_URL): nothing starts here, use bot/main.py polling.
     """
+    import asyncio as _asyncio
+
     settings = get_settings()
     if not (settings.public_url and settings.telegram_bot_token):
         return None
@@ -59,7 +65,15 @@ async def _start_telegram_webhook():
 
         bot, dispatcher = create_bot()
         url = settings.public_url.rstrip("/") + "/api/bot/webhook"
-        await bot.set_webhook(url, secret_token=settings.telegram_webhook_secret or None)
+        try:
+            await _asyncio.wait_for(
+                bot.set_webhook(url, secret_token=settings.telegram_webhook_secret or None),
+                timeout=20,
+            )
+        except _asyncio.TimeoutError:
+            print("telegram webhook set timed out, will retry on next restart")
+            await bot.session.close()
+            return None
         app.state.bot = bot
         app.state.dispatcher = dispatcher
         return bot
