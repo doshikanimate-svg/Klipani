@@ -15,6 +15,8 @@ export type Job = {
   progress: number;
   current_step: string;
   error?: string;
+  type?: "ANALYZE" | "RENDER" | "MONTAGE";
+  eta_seconds?: number | null;
 };
 export type Highlight = {
   id: string;
@@ -50,11 +52,26 @@ export type Analysis = {
   created_at: string;
 };
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+  /** 402 = the local license key is missing or expired. */
+  get isLicenseRequired() {
+    return this.status === 402 || this.code === "license_required";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || "Ошибка сервера");
+    throw new ApiError(body.detail || "Ошибка сервера", res.status, body.code);
   }
   return res.json();
 }
@@ -115,7 +132,10 @@ export const api = {
   thumbnailUrl: (id: string) => `${BASE}/api/clips/${id}/thumbnail`,
   storage: () => request<Record<string, number>>("/api/storage"),
   deleteVideo: (id: string) => request<{ deleted: boolean; removed_files: number }>(`/api/videos/${id}`, { method: "DELETE" }),
-  licenseStatus: () => request<{ active: boolean; plan?: string; exp?: number } | { active: boolean }>("/api/license"),
+  licenseStatus: () =>
+    request<{ active: boolean; plan?: string | null; exp?: number | null; free?: boolean; days_left?: number }>(
+      "/api/license",
+    ),
   licenseActivate: (key: string) =>
     request<{ active: boolean; plan: string; exp: number }>(`/api/license`, {
       method: "POST",

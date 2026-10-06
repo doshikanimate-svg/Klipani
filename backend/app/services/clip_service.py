@@ -59,6 +59,19 @@ def _watermark_for_clip(clip_id: str) -> Optional[dict]:
         return None
 
 
+def _service_mark() -> Optional[dict]:
+    """Free-tier service mark spec, or None for paid plans. Never fatal."""
+    try:
+        from .service_watermark import needs_service_watermark, service_spec
+
+        if not needs_service_watermark():
+            return None
+        return service_spec(get_settings().storage)
+    except Exception as error:  # noqa: BLE001
+        logger.warning("Service watermark skipped: %s", error)
+        return None
+
+
 def _effect_plan(anchor: str) -> EffectPlan:
     return EffectPlan(anchor=anchor if anchor in ("center", "top") else "center")
 
@@ -77,14 +90,15 @@ def generate_clip(video: dict, highlight: dict, with_subtitles: bool = True, sty
     vf = vertical_video_filter(effects, duration)
     af = audio_filter(duration)
     watermark = _watermark_for_clip(clip_id)
+    service = _service_mark()
     try:
-        render_vertical(Path(video["path"]), output, start, duration, subtitles_path=subtitles, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark)
+        render_vertical(Path(video["path"]), output, start, duration, subtitles_path=subtitles, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark, service=service)
     except Exception:
         if subtitles is not None:
             # Subtitles are enhancement, not requirement: retry clean render.
             logger.warning("Render with subtitles failed, retrying without them.")
             subtitles.unlink(missing_ok=True)
-            render_vertical(Path(video["path"]), output, start, duration, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark)
+            render_vertical(Path(video["path"]), output, start, duration, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark, service=service)
         else:
             raise
     create_thumbnail(output, thumbnail)
@@ -120,13 +134,14 @@ def generate_montage(video: dict, highlight: dict, with_subtitles: bool = True, 
     vf = vertical_video_filter(effects, total)
     af = audio_filter(total)
     watermark = _watermark_for_clip(clip_id)
+    service = _service_mark()
     try:
-        render_montage(Path(video["path"]), output, parts, subtitles_path=subtitles, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark)
+        render_montage(Path(video["path"]), output, parts, subtitles_path=subtitles, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark, service=service)
     except Exception:
         if subtitles is not None:
             logger.warning("Montage render with subtitles failed, retrying without them.")
             subtitles.unlink(missing_ok=True)
-            render_montage(Path(video["path"]), output, parts, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark)
+            render_montage(Path(video["path"]), output, parts, vf_video=vf, af_chain=af, sounds=effects.sounds or None, style=style, watermark=watermark, service=service)
         else:
             raise
     create_thumbnail(output, thumbnail)

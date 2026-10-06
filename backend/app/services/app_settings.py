@@ -8,6 +8,10 @@ DEFAULTS = {
     "tg_chat_id": "",
 }
 
+# Stored separately from DEFAULTS: never exposed via /api/settings, only via
+# the license endpoints (so a stray settings write cannot wipe the key).
+PRIVATE_KEYS = {"license_key"}
+
 
 def get_all() -> dict:
     with database() as db:
@@ -17,6 +21,22 @@ def get_all() -> dict:
         if row["key"] in result:
             result[row["key"]] = row["value"]
     return result
+
+
+def get_private(key: str) -> str:
+    """Read one private setting (license key) — never part of the public dict."""
+    with database() as db:
+        row = db.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else ""
+
+
+def set_private(key: str, value: str) -> str:
+    """Write one private setting (license key) after the caller validated it."""
+    if key not in PRIVATE_KEYS:
+        raise ValueError("Неизвестная настройка.")
+    with database() as db:
+        db.execute("INSERT OR REPLACE INTO app_settings VALUES (?, ?)", (key, str(value)))
+    return get_private(key)
 
 
 def update(values: dict) -> dict:

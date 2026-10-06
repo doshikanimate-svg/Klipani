@@ -15,6 +15,8 @@ a = Analysis(
     binaries=[(ffmpeg_exe, "imageio_ffmpeg/binaries")],
     datas=[
         (os.path.join(ROOT, "backend", "prompts.json"), "."),
+        # Free-tier service watermark logo (app icon).
+        (os.path.join(ROOT, "backend", "app", "assets"), os.path.join("app", "assets")),
         *collect_data_files("faster_whisper"),
     ],
     hiddenimports=[

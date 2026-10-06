@@ -170,19 +170,19 @@ def resolve_logo(platform: str, storage_dir) -> Optional[str]:
         return None
 
 
-def logo_display_width(path) -> int:
-    """Width of the logo after `scale=-2:48`, read from the PNG header."""
+def logo_display_width(path, height: int = WATERMARK_LOGO_HEIGHT) -> int:
+    """Width of the logo after `scale=-2:{height}`, read from the PNG header."""
     try:
         header = path.read_bytes()[:24]
         if header[:8] == b"\x89PNG\r\n\x1a\n":
             width = int.from_bytes(header[16:20], "big")
-            height = int.from_bytes(header[20:24], "big")
-            if width > 0 and height > 0:
-                scaled = round(width * WATERMARK_LOGO_HEIGHT / height)
+            src_height = int.from_bytes(header[20:24], "big")
+            if width > 0 and src_height > 0:
+                scaled = round(width * height / src_height)
                 return max(2, int(scaled) // 2 * 2)  # scale=-2 keeps width even
     except (OSError, ValueError):
         pass
-    return WATERMARK_LOGO_HEIGHT
+    return height
 
 
 def watermark_spec(

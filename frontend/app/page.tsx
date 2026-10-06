@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, DragEvent, useEffect, useRef, useState } from "react";
-import { api, Analysis, Clip, Health, Highlight, Job, Publication, Video, YtStatus } from "../lib/api";
+import { api, Analysis, ApiError, Clip, Health, Highlight, Job, Publication, Video, YtStatus } from "../lib/api";
 
 const formats = ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"];
 const time = (value: number) => new Date(Math.max(0, value) * 1000).toISOString().slice(11, 19);
@@ -30,6 +30,15 @@ const stepLabel = (step: string) => {
   if (step === "PREPARING") return "Подготовка";
   if (step === "CANCELLED") return "Отменено";
   return step;
+};
+const etaLabel = (seconds?: number | null) => {
+  if (seconds === undefined || seconds === null) return "—";
+  if (seconds < 60) return `${seconds} сек`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} мин`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
 };
 
 type Draft = { start: string; end: string };
@@ -60,7 +69,13 @@ export default function Home() {
   const [storage, setStorage] = useState<Record<string, number> | undefined>();
   const [wm, setWm] = useState<Record<string, string>>({});
   const [wmSaved, setWmSaved] = useState(false);
-  const [license, setLicense] = useState<{ active: boolean; plan?: string; exp?: number }>({ active: false });
+  const [license, setLicense] = useState<{
+    active: boolean;
+    plan?: string | null;
+    exp?: number | null;
+    free?: boolean;
+    days_left?: number;
+  }>({ active: false });
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [health, setHealth] = useState<Health | undefined>();
@@ -88,6 +103,18 @@ export default function Home() {
   const step = !video ? 1 : highlights.length === 0 ? 2 : clips.length === 0 ? 3 : 4;
   const steps = ["Видео", "Моменты", "Клипы"];
 
+  /** Server said the license is missing/expired: refresh state and show the profile. */
+  const handleError = (e: unknown, fallback: string): boolean => {
+    if (e instanceof ApiError && e.isLicenseRequired) {
+      setLicense({ active: false });
+      setError("Подписка нужна для этой операции — продлите её в профиле.");
+      setProfileOpen(true);
+      return true;
+    }
+    setError(e instanceof Error ? e.message : fallback);
+    return false;
+  };
+
   const modeLabel = () => {
     if (!health) return "…";
     if (health.whisper && health.whisper_ready && health.llm) return `Whisper + Ollama (${health.whisper_model})`;
@@ -112,7 +139,7 @@ export default function Home() {
       setClips([]);
       setJob(undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось загрузить файл.");
+      handleError(e, "Не удалось загрузить файл.");
     } finally {
       setLoading(false);
     }
@@ -149,7 +176,7 @@ export default function Home() {
         api.analysis(video.id).then(setAnalysis).catch(() => undefined);
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось запустить анализ.");
+      handleError(e, "Не удалось запустить анализ.");
     }
   };
 
@@ -221,6 +248,7 @@ export default function Home() {
       setError(undefined);
       setLicense(await api.licenseActivate(licenseKey.trim()));
       setLicenseKey("");
+      api.storage().then(setStorage).catch(() => undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось активировать ключ.");
     } finally {
@@ -264,7 +292,7 @@ export default function Home() {
         await refreshHistory();
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось создать клип.");
+      handleError(e, "Не удалось создать клип.");
     }
   };
 
@@ -280,7 +308,7 @@ export default function Home() {
         await refreshHistory();
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось собрать монтаж.");
+      handleError(e, "Не удалось собрать монтаж.");
     }
   };
 
@@ -354,7 +382,7 @@ export default function Home() {
       await api.sendTelegram(clip.id);
       setTgSent((prev) => ({ ...prev, [clip.id]: true }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось отправить в Telegram.");
+      handleError(e, "Не удалось отправить в Telegram.");
     } finally {
       setTgBusy(undefined);
     }
@@ -397,7 +425,7 @@ export default function Home() {
       api.ytStatus().then(setYt).catch(() => undefined);
       api.ttStatus().then(setTt).catch(() => undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не удалось опубликовать.");
+      handleError(e, "Не удалось опубликовать.");
     } finally {
       setPubBusy(undefined);
     }
@@ -527,6 +555,20 @@ export default function Home() {
             </div>
             <div className="progress-shimmer h-2 overflow-hidden rounded-full bg-zinc-800">
               <div className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-pink transition-all" style={{ width: `${job.progress}%` }} />
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs">
+              <span className="text-zinc-500">
+                {job.status === "RUNNING" || job.status === "QUEUED"
+                  ? `Осталось ${etaLabel(job.eta_seconds)}`
+                  : job.status === "DONE"
+                    ? "Готово"
+                    : job.status === "FAILED"
+                      ? "Ошибка"
+                      : "Ожидание"}
+              </span>
+              <span className="text-zinc-600">
+                {job.type === "ANALYZE" ? "Анализ: распознавание речи и подбор моментов" : job.type === "MONTAGE" ? "Сборка монтажа" : "Рендер клипа"}
+              </span>
             </div>
           </div>
         )}
@@ -724,9 +766,9 @@ export default function Home() {
                 <span className="text-xs font-bold tracking-widest text-zinc-500">ПРОФИЛЬ</span>
                 <span className="ml-3 text-base font-bold">
                   {license.active ? (
-                    <span className="text-brand-cyan">{license.plan || "активна"}</span>
+                    <span className="text-brand-cyan">{license.plan === "trial" ? "пробная" : license.plan || "активна"}</span>
                   ) : (
-                    <span className="text-zinc-500">без подписки</span>
+                    <span className="text-brand-pink">нужна подписка</span>
                   )}
                 </span>
               </span>
@@ -740,20 +782,39 @@ export default function Home() {
             </div>
             <div className="flex-1 overflow-y-auto p-5">
           {license.active && license.exp ? (
-            <p className="text-sm text-zinc-400">
-              Подписка активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}.{" "}
-              <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
-                Продлить в боте →
-              </a>
-            </p>
+            <>
+              <p className="text-sm text-zinc-400">
+                {license.plan === "trial" ? (
+                  <>
+                    Пробная подписка до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}. На каждом клипе есть
+                    небольшая отметка @Klipani_bot — она исчезнет на оплаченном тарифе.{" "}
+                  </>
+                ) : (
+                  <>
+                    Подписка активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}.{" "}
+                  </>
+                )}
+                <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                  Продлить в боте →
+                </a>
+              </p>
+              {license.plan === "trial" && license.days_left !== undefined && (
+                <p className="mt-1 text-xs text-zinc-500">
+                  Осталось {license.days_left} дн. Оплатите тариф, и watermark исчезнет.
+                </p>
+              )}
+            </>
           ) : (
-            <p className="text-sm text-zinc-400">
-              Купите подписку в Telegram-боте{" "}
-              <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
-                @Klipani_bot
-              </a>{" "}
-              и вставьте ключ сюда.
-            </p>
+            <div className="rounded-xl border border-brand-pink/40 bg-brand-pink/10 p-4">
+              <p className="text-sm font-bold text-brand-pink">Нужна подписка</p>
+              <p className="mt-1 text-sm text-zinc-300">
+                Без ключа приложение не обрабатывает видео. Купите подписку в Telegram-боте{" "}
+                <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                  @Klipani_bot
+                </a>{" "}
+                и вставьте ключ сюда.
+              </p>
+            </div>
           )}
           <div className="mt-3 flex gap-2">
             <input

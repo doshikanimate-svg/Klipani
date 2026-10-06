@@ -21,6 +21,11 @@ PLANS = {
     "month": {"days": 30, "price_rub": 2490, "title": "Месяц · 2490 ₽"},
 }
 
+# Plans without payment: full features, but every render carries the service watermark.
+FREE_PLANS = {"trial"}
+
+PAID_PLANS = {plan for plan in PLANS if plan not in FREE_PLANS}
+
 PREFIX = "KLIP-"
 
 
@@ -72,3 +77,31 @@ def verify_license(key: str) -> Optional[dict]:
         return {"telegram_id": int(payload.get("tg", 0)), "plan": payload["plan"], "exp": int(payload["exp"])}
     except (ValueError, KeyError, TypeError, AttributeError):
         return None
+
+
+def current_state() -> dict:
+    """Subscription state of this machine: {active, plan, exp, free, days_left}.
+
+    `free` means "no paid plan": trial, expired or no key at all. Paid plans get
+    the app without the service watermark.
+    """
+    from .app_settings import get_private
+
+    try:
+        stored = get_private("license_key")
+    except Exception:  # noqa: BLE001 — a broken settings DB must not kill the API
+        stored = ""
+    try:
+        info = verify_license(stored) if stored else None
+    except RuntimeError:
+        info = None  # no LICENSE_SECRET configured: treat as unlicensed
+    if not info:
+        return {"active": False, "plan": None, "exp": None, "free": True, "days_left": 0}
+    days_left = max(0, (info["exp"] - int(time.time())) // 86400)
+    return {
+        "active": True,
+        "plan": info["plan"],
+        "exp": info["exp"],
+        "free": info["plan"] in FREE_PLANS,
+        "days_left": days_left,
+    }

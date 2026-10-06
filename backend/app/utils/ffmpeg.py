@@ -32,20 +32,55 @@ def _escape_subtitles_path(path: Path) -> str:
     return str(path).replace("\\", "\\\\").replace("'", r"\'").replace(":", r"\:")
 
 
-def _apply_watermark(video_part: str, watermark: Optional[dict]) -> str:
-    """Append watermark stage to a video chain (no output label yet). Ends with [vout]."""
-    if not watermark:
-        return video_part + "[vout]"
-    if watermark.get("logo"):
-        from ..services.effect_service import WATERMARK_LOGO_HEIGHT
+def _logo_stage(src: str, mark: dict, height: int, logo_alpha: Optional[float], tag: str) -> str:
+    """Overlay a scaled logo onto [src], then drawtext it. Ends with [{tag}].
 
-        return (
-            video_part + "[vpre];"
-            f"movie='{_escape_subtitles_path(watermark['logo'])}',scale=-2:{WATERMARK_LOGO_HEIGHT}[wm];"
-            f"[vpre][wm]overlay={watermark['overlay']}[vmd];"
-            f"[vmd]{watermark['draw']}[vout]"
-        )
-    return video_part + f",{watermark['draw']}[vout]"
+    `src` is a stream label, e.g. ``[base]``.
+    """
+    logo_filter = f",scale=-2:{height}"
+    if logo_alpha is not None:
+        logo_filter += f",format=rgba,colorchannelmixer=aa={logo_alpha}"
+    return (
+        f"movie='{_escape_subtitles_path(mark['logo'])}'{logo_filter}[{tag}g];"
+        f"[{src}][{tag}g]overlay={mark['overlay']}[{tag}od];"
+        f"[{tag}od]{mark['draw']}[{tag}]"
+    )
+
+
+def _text_stage(src: str, mark: dict, tag: str) -> str:
+    """drawtext-only mark on [src]. Ends with [{tag}]."""
+    return f"[{src}]{mark['draw']}[{tag}]"
+
+
+def _apply_watermark(video_part: str, watermark: Optional[dict], service: Optional[dict] = None) -> str:
+    """Append the free-tier service mark and the user watermark; ends with [vout].
+
+    Each mark is its own labelled stage reading the previous label, so both can
+    coexist and no stage ever re-consumes a stream that is already in use.
+    """
+    from ..services.effect_service import WATERMARK_LOGO_HEIGHT
+
+    # video_part is always a plain filter chain (e.g. `[0:v]scale=...,setsar=1`),
+    # never a bare label, so `null` is appended as another filter.
+    stages: list[str] = [f"{video_part},null[base]"]
+    current = "base"
+    for mark, tag, height, alpha in (
+        (service, "svc", None, None),
+        (watermark, "wm", WATERMARK_LOGO_HEIGHT, None),
+    ):
+        if not mark:
+            continue
+        if mark.get("logo"):
+            if tag == "svc":
+                from ..services.service_watermark import SERVICE_LOGO_ALPHA, SERVICE_LOGO_HEIGHT
+
+                height, alpha = SERVICE_LOGO_HEIGHT, SERVICE_LOGO_ALPHA
+            stages.append(_logo_stage(current, mark, height, alpha, tag))
+        else:
+            stages.append(_text_stage(current, mark, tag))
+        current = tag
+    stages.append(f"[{current}]null[vout]")
+    return ";".join(stages)
 
 
 def sfx_inputs(sounds: list) -> list[str]:
@@ -127,12 +162,13 @@ def render_montage(
     sounds: Optional[list] = None,
     style: str = "crop",
     watermark: Optional[dict] = None,
+    service: Optional[dict] = None,
 ) -> None:
     """Concatenate source windows, then crop to vertical. Single FFmpeg pass."""
     binary = bundled_exe() or ("ffmpeg" if available("ffmpeg") else None)
     if not binary:
         raise VideoToolError("FFmpeg не найден. Установите его командой: brew install ffmpeg")
-    if (subtitles_path is not None or sounds or style == "blur" or watermark) and binary == "ffmpeg":
+    if (subtitles_path is not None or sounds or style == "blur" or watermark or service) and binary == "ffmpeg":
         bundled = bundled_exe()
         if not bundled:
             raise VideoToolError("Для прожига субтитров нужен imageio-ffmpeg: pip install -r backend/requirements.txt")
@@ -163,7 +199,7 @@ def render_montage(
     )
     if subtitles_path is not None:
         video_chain += f",subtitles={_escape_subtitles_path(subtitles_path)}:fontsdir='{fonts_dir}'"
-    video_chain = _apply_watermark(video_chain, watermark)
+    video_chain = _apply_watermark(video_chain, watermark, service)
     if sounds:
         audio_graph = sfx_mix_chain("[acat]", sounds, len(parts), total)
         full_graph = f"{video_chain};{audio_graph}"
@@ -202,8 +238,9 @@ def render_vertical(
     sounds: Optional[list] = None,
     style: str = "crop",
     watermark: Optional[dict] = None,
+    service: Optional[dict] = None,
 ) -> None:
-    if subtitles_path is not None or sounds or style == "blur" or watermark:
+    if subtitles_path is not None or sounds or style == "blur" or watermark or service:
         binary = bundled_exe()
         if not binary:
             raise VideoToolError("Для прожига субтитров нужен imageio-ffmpeg: pip install -r backend/requirements.txt")
@@ -214,7 +251,7 @@ def render_vertical(
     if style not in ("crop", "blur"):
         raise VideoToolError("Неизвестный стиль экспорта.")
     inputs = ["-ss", f"{start:.3f}", "-i", str(source)]
-    if style == "blur" or sounds or watermark:
+    if style == "blur" or sounds or watermark or service:
         from ..services.effect_service import fade_suffix
 
         inputs += sfx_inputs(sounds or [])
@@ -227,7 +264,7 @@ def render_vertical(
             video_part = f"[0:v]{base}"
         if subtitles_path is not None:
             video_part += f",subtitles={_escape_subtitles_path(subtitles_path)}:fontsdir='{fonts_dir}'"
-        video_part = _apply_watermark(video_part, watermark)
+        video_part = _apply_watermark(video_part, watermark, service)
         if sounds:
             full_graph = f"{video_part};{sfx_mix_chain('[0:a]', sounds, 1, duration)}"
             audio_map = "[aout]"

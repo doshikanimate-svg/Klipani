@@ -1,11 +1,12 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import get_settings
@@ -97,6 +98,34 @@ async def _start_telegram_webhook():
 
 
 app = FastAPI(title="KLIPANI", version="0.3.0", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def license_gate(request: Request, call_next):
+    """Paid work requires a valid key. Read-only endpoints stay open so the user
+    can still see their clips and buy a subscription."""
+    if not settings.license_enforced:
+        return await call_next(request)
+    method, path = request.method, request.url.path
+    # Bot/payment endpoints run server-side on the host and have no local key.
+    public = path.startswith(("/api/health", "/api/license", "/api/bot", "/api/payments"))
+    # Cancelling must always work, even if the key expires mid-render.
+    if public or method not in ("POST", "PUT", "PATCH", "DELETE") or path.endswith("/cancel"):
+        return await call_next(request)
+    from .services.license_service import current_state
+
+    state = current_state()
+    if state["active"]:
+        return await call_next(request)
+    detail = (
+        f"Подписка истекла {time.strftime('%d.%m.%Y', time.localtime(state['exp']))}."
+        if state.get("exp")
+        else "Нет активной подписки. Пробная доступна 3 дня."
+    )
+    return JSONResponse(
+        status_code=402,
+        content={"detail": f"{detail} Продлить: @Klipani_bot", "code": "license_required", **state},
+    )
 app.add_middleware(
     CORSMiddleware,
     # LAN origins for the mobile companion (same Wi-Fi); no cookies used.
@@ -128,22 +157,14 @@ class LicenseBody(BaseModel):
 
 @app.get("/api/license")
 def license_status() -> dict:
-    from .services import app_settings as settings_store
-    from .services.license_service import verify_license
+    from .services.license_service import current_state
 
-    stored = settings_store.get_all().get("license_key", "")
-    try:
-        info = verify_license(stored) if stored else None
-    except RuntimeError:
-        info = None
-    if not info:
-        return {"active": False, "plan": None, "exp": None}
-    return {"active": True, **info}
+    return current_state()
 
 
 @app.post("/api/license")
 def license_activate(body: LicenseBody) -> dict:
-    from .services import app_settings as settings_store
+    from .services.app_settings import set_private
     from .services.license_service import verify_license
 
     key = body.key.strip()
@@ -153,7 +174,7 @@ def license_activate(body: LicenseBody) -> dict:
         raise HTTPException(400, str(error)) from error
     if not info:
         raise HTTPException(400, "Ключ недействителен или истёк.")
-    settings_store.update({"license_key": key})
+    set_private("license_key", key)
     return {"active": True, **info}
 
 
@@ -267,7 +288,7 @@ def transcript(video_id: str) -> dict:
 def analyze(video_id: str) -> dict:
     required_video(video_id)
     try:
-        return create_job(video_id, "ANALYZE")
+        return _job_payload(create_job(video_id, "ANALYZE"))
     except JobConflictError as error:
         raise HTTPException(409, str(error)) from error
 
@@ -316,12 +337,19 @@ def save_clip_stats(clip_id: str, body: ClipStatsBody) -> dict:
     return put_clip_stats(clip_id, body.views, body.likes)
 
 
+def _job_payload(job: dict) -> dict:
+    """Job dict plus the ETA the UI shows as «≈ 4 мин»."""
+    from .services.estimate_service import estimate_remaining
+
+    return {**job, "eta_seconds": estimate_remaining(job, get_video(job["video_id"]))}
+
+
 @app.get("/api/jobs/{job_id}")
 def job(job_id: str) -> dict:
     result = get_job(job_id)
     if not result:
         raise HTTPException(404, "Задача не найдена.")
-    return result
+    return _job_payload(result)
 
 
 @app.post("/api/jobs/{job_id}/cancel")
@@ -338,7 +366,7 @@ def generate(highlight_id: str, subtitles: bool = True, style: str = "crop") -> 
     if not highlight:
         raise HTTPException(404, "Момент не найден.")
     try:
-        return create_job(highlight["video_id"], "RENDER", highlight_id, subtitles=subtitles, style=style)
+        return _job_payload(create_job(highlight["video_id"], "RENDER", highlight_id, subtitles=subtitles, style=style))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 
@@ -349,7 +377,7 @@ def montage(highlight_id: str, subtitles: bool = True, style: str = "crop") -> d
     if not highlight:
         raise HTTPException(404, "Момент не найден.")
     try:
-        return create_job(highlight["video_id"], "MONTAGE", highlight_id, subtitles=subtitles, style=style)
+        return _job_payload(create_job(highlight["video_id"], "MONTAGE", highlight_id, subtitles=subtitles, style=style))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 
@@ -362,7 +390,7 @@ def montage_video(video_id: str, subtitles: bool = True, style: str = "crop") ->
         raise HTTPException(404, "Нет моментов для монтажа. Сначала запустите анализ.")
     top = max(highlights, key=lambda h: (h["score"], -h["start_time"]))
     try:
-        return create_job(video_id, "MONTAGE", top["id"], subtitles=subtitles, style=style)
+        return _job_payload(create_job(video_id, "MONTAGE", top["id"], subtitles=subtitles, style=style))
     except ValueError as error:
         raise HTTPException(422, str(error)) from error
 

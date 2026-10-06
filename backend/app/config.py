@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     da_token_path: str = "storage/da_token.json"
     da_donate_url: str = ""
     klipani_data: str = ""
+    # Paid features (upload/analyze/render/publish) require a valid license key.
+    # Set LICENSE_ENFORCED=0 in .env for local development only.
+    license_enforced: bool = True
+    # Free-tier service watermark (@Klipani_bot + app logo) on every render.
+    service_watermark: bool = True
+    service_watermark_text: str = "@Klipani_bot"
 
     @property
     def storage(self) -> Path:
