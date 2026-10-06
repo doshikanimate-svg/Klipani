@@ -1,12 +1,12 @@
 """Service watermark on free-tier renders.
 
-Paid plans (LICENSE ...) get clean output. Trial / no-key users get the
-service mark burned into every clip: the KLIPANI app logo plus @Klipani_bot,
-bottom-right, small and semi-transparent so it never fights the subtitles.
+Paid plans (LICENSE ...) get clean output. Trial / no-key users get the service
+mark burned into every clip: the KLIPANI app logo plus @Klipani_bot, bottom-right
+as one pill, semi-transparent so it never fights the subtitles.
 
-The logo ships with the app (backend/app/assets/klipani_logo.png). If the file
-is missing (source checkout without assets), we fall back to text-only mark so
-the requirement "watermark on every free clip" still holds.
+The mark itself is pre-rendered by badge_service (Pillow). The logo ships with
+the app (backend/app/assets/klipani_logo.png); without Pillow or without the
+logo we degrade to a drawtext handle, never to no mark at all.
 """
 
 import logging
@@ -15,17 +15,20 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import get_settings
+from .badge_service import badge_spec
 
 logger = logging.getLogger(__name__)
 
-SERVICE_LOGO_HEIGHT = 44
-SERVICE_TEXT_SIZE = 30
-SERVICE_ALPHA = 0.55
-SERVICE_LOGO_ALPHA = 0.4
-SERVICE_BOTTOM = 60
-SERVICE_RIGHT = 48
-SERVICE_GAP = 10
-SERVICE_FONT = "/System/Library/Fonts/Helvetica.ttc"
+# Fallback-only values, used when Pillow is missing and the badge cannot be baked.
+SERVICE_LOGO_HEIGHT = 60
+SERVICE_TEXT_SIZE = 40
+SERVICE_ALPHA = 0.8
+SERVICE_LOGO_ALPHA = 0.9
+SERVICE_BOTTOM = 92
+SERVICE_RIGHT = 56
+SERVICE_GAP = 16
+SERVICE_FONT = "/Library/Fonts/Roboto-Bold.ttf"
+SERVICE_FONT_ALT = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
 SERVICE_FONT_LINUX = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
@@ -62,17 +65,18 @@ def service_logo_png() -> Optional[Path]:
 
 
 def _service_font() -> str:
-    for path in (SERVICE_FONT, SERVICE_FONT_LINUX):
+    for path in (SERVICE_FONT, SERVICE_FONT_ALT, SERVICE_FONT_LINUX):
         if Path(path).exists():
             return path
     return SERVICE_FONT
 
 
 def service_spec(storage_dir: Path) -> Optional[dict]:
-    """Overlay+drawtext spec for the service mark, or None if disabled.
+    """Overlay spec for the service mark, or None if disabled.
 
-    Layout: [app logo][gap][@Klipani_bot] on one line, bottom-right corner,
-    semi-transparent so it stays under the captions.
+    Preferred path is the pre-rendered pill badge (logo + handle side by side,
+    bold, bottom-right). Without Pillow we fall back to a logo overlay plus a
+    drawtext handle, so the mark is never silently dropped.
     """
     settings = get_settings()
     if not settings.service_watermark:
@@ -80,6 +84,9 @@ def service_spec(storage_dir: Path) -> Optional[dict]:
     handle = (settings.service_watermark_text or "@Klipani_bot").strip()
     if not handle:
         return None
+    badge = badge_spec(Path(storage_dir))
+    if badge is not None:
+        return badge
     logo = service_logo_png()
     textfile = Path(storage_dir) / "clips" / "service.svc.txt"
     textfile.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +94,7 @@ def service_spec(storage_dir: Path) -> Optional[dict]:
     # FFmpeg's overlay filter knows only frame/overlay sizes, not the text width.
     # So the logo is pinned to the right margin and the handle is drawn
     # right-aligned to the logo's left edge — both stay on one line.
-    text_h = int(SERVICE_TEXT_SIZE * 1.35)
+    text_h = int(SERVICE_TEXT_SIZE * 1.3)
     group_h = max(SERVICE_LOGO_HEIGHT, text_h)
     # overlay's uppercase H/W is the main frame, lowercase h/w the logo itself.
     group_y = f"H-h-{group_h + SERVICE_BOTTOM}"
@@ -105,7 +112,7 @@ def service_spec(storage_dir: Path) -> Optional[dict]:
     draw = (
         f"drawtext=fontfile='{_service_font()}':textfile='{textfile}'"
         f":fontsize={SERVICE_TEXT_SIZE}:fontcolor=white@{SERVICE_ALPHA}"
-        f":borderw=2:bordercolor=black@{SERVICE_ALPHA}:x={text_x}:y={text_y}"
+        f":borderw=3:bordercolor=black@{SERVICE_ALPHA}:x={text_x}:y={text_y}"
     )
     return {"draw": draw, "overlay": overlay, "logo": logo}
 

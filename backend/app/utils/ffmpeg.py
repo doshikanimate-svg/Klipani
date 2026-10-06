@@ -33,13 +33,21 @@ def _escape_subtitles_path(path: Path) -> str:
 
 
 def _logo_stage(src: str, mark: dict, height: int, logo_alpha: Optional[float], tag: str) -> str:
-    """Overlay a scaled logo onto [src], then drawtext it. Ends with [{tag}].
+    """Overlay a scaled logo/badge onto [src], then drawtext it. Ends with [{tag}].
 
-    `src` is a stream label, e.g. ``[base]``.
+    `src` is a stream label, e.g. ``[base]``. A prebuilt mark (badge PNG) already
+    contains its own text, so the drawtext step is skipped for it.
     """
     logo_filter = f",scale=-2:{height}"
     if logo_alpha is not None:
         logo_filter += f",format=rgba,colorchannelmixer=aa={logo_alpha}"
+    if not mark.get("draw"):
+        # Prebuilt mark: the image already contains its text, so overlay
+        # straight into the output label (no intermediate stage to relabel).
+        return (
+            f"movie='{_escape_subtitles_path(mark['logo'])}'{logo_filter}[{tag}g];"
+            f"[{src}][{tag}g]overlay={mark['overlay']}[{tag}]"
+        )
     return (
         f"movie='{_escape_subtitles_path(mark['logo'])}'{logo_filter}[{tag}g];"
         f"[{src}][{tag}g]overlay={mark['overlay']}[{tag}od];"
@@ -72,9 +80,14 @@ def _apply_watermark(video_part: str, watermark: Optional[dict], service: Option
             continue
         if mark.get("logo"):
             if tag == "svc":
+                from ..services.badge_service import BADGE_ALPHA, BADGE_HEIGHT
                 from ..services.service_watermark import SERVICE_LOGO_ALPHA, SERVICE_LOGO_HEIGHT
 
-                height, alpha = SERVICE_LOGO_HEIGHT, SERVICE_LOGO_ALPHA
+                if mark.get("prebuilt"):
+                    # The badge carries its own text and its own padding.
+                    height, alpha = BADGE_HEIGHT, BADGE_ALPHA
+                else:
+                    height, alpha = SERVICE_LOGO_HEIGHT, SERVICE_LOGO_ALPHA
             stages.append(_logo_stage(current, mark, height, alpha, tag))
         else:
             stages.append(_text_stage(current, mark, tag))

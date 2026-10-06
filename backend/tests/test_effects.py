@@ -54,19 +54,60 @@ def test_sfx_mix_chain_delays_and_fades() -> None:
     assert chain.endswith("[aout]")
 
 
+def _fake_logo(tmp_path, platform: str = "twitch", width: int = 64, height: int = 32) -> None:
+    """Local PNG so watermark layout tests never depend on the network."""
+    import struct
+    import zlib
+
+    (tmp_path / "watermarks").mkdir(exist_ok=True)
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    raw = b"".join(b"\x00" + b"\x00\x00\x00\x00" * width for _ in range(height))
+    png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b"")
+    (tmp_path / "watermarks" / f"{platform}.png").write_bytes(png)
+
+
 def test_watermark_positions_avoid_edges(tmp_path) -> None:
-    from app.services.effect_service import WATERMARK_BOTTOM, WATERMARK_TOP, watermark_spec
+    from app.services.effect_service import WATERMARK_BOTTOM, WATERMARK_LEFT, watermark_spec
 
     (tmp_path / "clips").mkdir()
-    (tmp_path / "watermarks").mkdir()
+    _fake_logo(tmp_path, "twitch")
+    _fake_logo(tmp_path, "youtube")
     spec = watermark_spec(True, "twitch", "nick", "top-left", tmp_path, "c1")
     assert spec is not None
     assert "y=170" in spec["draw"] or ":170" in spec["overlay"]
     assert "Roboto-Bold" in spec["draw"]
+    # logo 64x32 at height 48 -> width 96; text starts right of it
+    assert spec["overlay"] == f"{WATERMARK_LEFT}:170+2"
+    assert spec["draw"].endswith(f"x={WATERMARK_LEFT + 96 + 14}:y=170+0")
     spec_br = watermark_spec(True, "youtube", "nick", "bottom-right", tmp_path, "c2")
     assert "W-180" in spec_br["draw"] and f"H-{WATERMARK_BOTTOM}" in spec_br["draw"]
     assert watermark_spec(False, "twitch", "nick", "top-left", tmp_path, "c3") is None
     assert watermark_spec(True, "twitch", "   ", "top-left", tmp_path, "c4") is None
+
+
+def test_watermark_without_logo_is_text_only(tmp_path, monkeypatch) -> None:
+    """No logo available: the nickname still renders, edge-anchored."""
+    from app.services import effect_service
+    from app.services.effect_service import WATERMARK_BOTTOM, WATERMARK_LEFT, watermark_spec
+
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "watermarks").mkdir()
+    monkeypatch.setattr(effect_service, "resolve_logo", lambda platform, storage: None)
+
+    spec = watermark_spec(True, "twitch", "nick", "top-left", tmp_path, "nl1")
+    assert spec is not None
+    assert spec["logo"] is None
+    assert spec["overlay"] == ""
+    assert spec["draw"].endswith(f"x={WATERMARK_LEFT}:y=170")
+
+    bottom = watermark_spec(True, "twitch", "nick", "bottom-right", tmp_path, "nl2")
+    assert bottom is not None and bottom["logo"] is None
+    assert f"H-text_h-{WATERMARK_BOTTOM}" in bottom["draw"]
 
 
 def test_watermark_logo_sits_beside_nickname(tmp_path) -> None:

@@ -22,6 +22,10 @@ a = Analysis(
     hiddenimports=[
         "ctranslate2",
         "faster_whisper",
+        # Pre-rendered service badge (free-tier watermark) needs Pillow.
+        "PIL.Image",
+        "PIL.ImageDraw",
+        "PIL.ImageFont",
         "googleapiclient.discovery_cache",
         "uvicorn.logging",
         "uvicorn.loops.auto",

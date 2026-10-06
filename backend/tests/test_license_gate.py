@@ -73,15 +73,79 @@ def test_unknown_key_rejected() -> None:
     assert current_state()["active"] is False
 
 
-def test_service_spec_has_logo_and_handle(tmp_path) -> None:
+def test_service_spec_prefers_prebuilt_badge(tmp_path) -> None:
+    """With Pillow the mark is one pre-rendered pill: logo and handle baked in."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    from app.services.service_watermark import service_logo_png, service_spec
+
+    spec = service_spec(tmp_path)
+    assert spec is not None
+    assert spec.get("prebuilt") is True
+    assert spec["draw"] == ""  # no drawtext: the text is inside the PNG
+    assert spec["overlay"] == "W-w-56:H-h-92"  # bottom-right corner
+    with Image.open(spec["logo"]) as badge:
+        assert badge.width > badge.height  # landscape pill
+        assert badge.mode == "RGBA"
+    assert service_logo_png() is not None
+
+
+def test_badge_cache_is_reused(tmp_path) -> None:
+    pytest.importorskip("PIL")
+    from app.services.badge_service import badge_path
+
+    logo = None
+    first = badge_path(tmp_path, logo, "@Klipani_bot")
+    assert first is not None
+    stamp = first.stat().st_mtime_ns
+    again = badge_path(tmp_path, logo, "@Klipani_bot")
+    assert again == first and again.stat().st_mtime_ns == stamp
+    other = badge_path(tmp_path, logo, "@Klipani_support")
+    assert other != first  # different handle -> different badge
+
+
+def test_badge_layout_has_logo_beside_text(tmp_path) -> None:
+    """Logo on the left, handle on the right, on the same line."""
+    pytest.importorskip("PIL")
+    from PIL import Image
+
+    from app.services.badge_service import render_badge
+    from app.services.service_watermark import service_logo_png
+
+    out = render_badge(service_logo_png(), "@Klipani_bot", tmp_path / "svc.png")
+    assert out is not None
+    with Image.open(out) as badge:
+        width, height = badge.size
+        alpha = badge.getchannel("A")
+        box = alpha.getbbox()
+        assert box is not None
+        left = badge.crop((0, 0, width // 2, height)).convert("RGB")
+        right = badge.crop((width // 2, 0, width, height)).convert("RGB")
+        # Both halves carry ink: icon left, handle right.
+        assert left.getbbox() is not None and right.getbbox() is not None
+
+
+def test_service_spec_falls_back_without_pillow(tmp_path, monkeypatch) -> None:
+    """No Pillow -> logo + drawtext chain, still a watermark."""
+    import builtins
+
+    from app.services import badge_service
     from app.services.service_watermark import service_spec
 
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name.startswith("PIL"):
+            raise ImportError("no Pillow")
+        return real_import(name, *args, **kwargs)
+
     (tmp_path / "clips").mkdir()
+    monkeypatch.setattr(builtins, "__import__", blocked)
+    monkeypatch.setattr(badge_service, "render_badge", lambda *a, **k: None)
     spec = service_spec(tmp_path)
-    assert spec is not None and spec["logo"] is not None
-    assert "@Klipani_bot" in (tmp_path / "clips" / "service.svc.txt").read_text(encoding="utf-8")
-    assert spec["draw"].startswith("drawtext=")
-    assert "40" not in spec["overlay"].split(":")[0].split("-")[0]  # right margin, not left
+    assert spec is not None and spec["draw"].startswith("drawtext=")
+    assert spec.get("prebuilt") is not True
 
 
 def test_service_spec_can_be_disabled(tmp_path, monkeypatch) -> None:

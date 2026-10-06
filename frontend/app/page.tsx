@@ -787,7 +787,7 @@ export default function Home() {
                 {license.plan === "trial" ? (
                   <>
                     Пробная подписка до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}. На каждом клипе есть
-                    небольшая отметка @Klipani_bot — она исчезнет на оплаченном тарифе.{" "}
+                    отметка @Klipani_bot с логотипом — она исчезнет на оплаченном тарифе.{" "}
                   </>
                 ) : (
                   <>
