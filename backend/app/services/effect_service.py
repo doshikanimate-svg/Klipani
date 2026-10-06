@@ -128,14 +128,31 @@ def _watermark_font() -> str:
 
 
 def resolve_logo(platform: str, storage_dir) -> Optional[str]:
-    """Custom PNG wins (storage/watermarks/{platform}.png), else auto-download
-    the official logo via Wikimedia thumbnail API into {platform}.auto.png."""
+    """Custom PNG wins (storage/watermarks/{platform}.png), then the logo bundled
+    with the app (backend/app/assets/{platform}.png), else auto-download the
+    official logo via Wikimedia thumbnail API into {platform}.auto.png."""
     from pathlib import Path as _Path
 
     storage_dir = _Path(storage_dir)
     custom = storage_dir / "watermarks" / f"{platform}.png"
     if custom.is_file():
         return str(custom)
+    try:
+        import sys as _sys
+
+        candidates = []
+        if getattr(_sys, "frozen", False):
+            exe_dir = _Path(_sys.executable).resolve().parent
+            candidates += [
+                exe_dir / "_internal" / "assets" / f"{platform}.png",
+                exe_dir / "assets" / f"{platform}.png",
+            ]
+        candidates.append(_Path(__file__).resolve().parents[1] / "assets" / f"{platform}.png")
+        for bundled in candidates:
+            if bundled.is_file() and bundled.stat().st_size > 0:
+                return str(bundled)
+    except Exception:  # noqa: BLE001 — bundled lookup must never break the render
+        pass
     cached = storage_dir / "watermarks" / f"{platform}.auto.png"
     if cached.is_file() and cached.stat().st_size > 0:
         return str(cached)

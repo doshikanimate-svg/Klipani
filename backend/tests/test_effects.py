@@ -90,6 +90,15 @@ def test_watermark_positions_avoid_edges(tmp_path) -> None:
     assert watermark_spec(True, "twitch", "   ", "top-left", tmp_path, "c4") is None
 
 
+def test_resolve_logo_prefers_bundled_over_download(tmp_path) -> None:
+    """No storage file -> the logo shipped with the app wins, no network."""
+    from app.services.effect_service import resolve_logo
+
+    (tmp_path / "watermarks").mkdir(exist_ok=True)
+    found = resolve_logo("twitch", tmp_path)
+    assert found is not None and found.endswith("assets/twitch.png")
+
+
 def test_watermark_without_logo_is_text_only(tmp_path, monkeypatch) -> None:
     """No logo available: the nickname still renders, edge-anchored."""
     from app.services import effect_service
