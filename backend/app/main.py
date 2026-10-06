@@ -44,7 +44,16 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         webhook_task.cancel()
-        await _stop_telegram_webhook(getattr(app.state, "bot", None))
+        # NOTE: do NOT delete_webhook() here. If the next process fails to
+        # re-register (missing env, crash), Telegram would have nowhere to
+        # deliver updates and the bot goes silently dead. Re-setting the same
+        # webhook on startup is idempotent.
+        bot = getattr(app.state, "bot", None)
+        if bot is not None:
+            try:
+                await bot.session.close()
+            except Exception:
+                pass
 
 
 async def _start_telegram_webhook():
@@ -85,16 +94,6 @@ async def _start_telegram_webhook():
     except Exception as error:
         print(f"telegram webhook not started: {error}")
         return None
-
-
-async def _stop_telegram_webhook(bot_handle) -> None:
-    if bot_handle is None:
-        return
-    try:
-        await bot_handle.delete_webhook()
-        await bot_handle.session.close()
-    except Exception:
-        pass
 
 
 app = FastAPI(title="KLIPANI", version="0.3.0", lifespan=lifespan)
