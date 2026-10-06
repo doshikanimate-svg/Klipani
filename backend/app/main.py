@@ -55,7 +55,11 @@ async def _start_telegram_webhook():
     import asyncio as _asyncio
 
     settings = get_settings()
-    if not (settings.public_url and settings.telegram_bot_token):
+    if not settings.telegram_bot_token:
+        print("telegram webhook skipped: TELEGRAM_BOT_TOKEN is empty")
+        return None
+    if not settings.public_url:
+        print("telegram webhook skipped: PUBLIC_URL is empty")
         return None
     try:
         import sys
@@ -76,6 +80,7 @@ async def _start_telegram_webhook():
             return None
         app.state.bot = bot
         app.state.dispatcher = dispatcher
+        print(f"telegram webhook set: {url}")
         return bot
     except Exception as error:
         print(f"telegram webhook not started: {error}")
