@@ -25,6 +25,11 @@ video::-webkit-media-controls-panel { background-image: linear-gradient(transpar
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: .45; transform: scale(.8); }
 }
+@keyframes kl-drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.drawer-in { animation: kl-drawer-in .3s cubic-bezier(.22,1,.36,1) both; }
 .anim-rise { animation: kl-rise .5s cubic-bezier(.22,1,.36,1) both; }
 .anim-pop { animation: kl-pop .25s ease-out both; }
 /* primary CTA glow on hover */
@@ -47,6 +52,6 @@ video::-webkit-media-controls-panel { background-image: linear-gradient(transpar
 .icon-btn:hover { transform: scale(1.12); }
 
 @media (prefers-reduced-motion: reduce) {
-  .anim-rise, .anim-pop, .progress-shimmer::after, .dot-live { animation: none; }
+  .anim-rise, .anim-pop, .drawer-in, .progress-shimmer::after, .dot-live { animation: none; }
   .btn-glow:hover:not(:disabled), .btn-glow-pink:hover:not(:disabled), .card-lift:hover, .icon-btn:hover { transform: none; }
 }

@@ -68,7 +68,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | undefined>();
   const input = useRef<HTMLInputElement>(null);
-  const profileRef = useRef<HTMLDetailsElement>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const pollRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -431,7 +431,7 @@ export default function Home() {
           )}
           <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">{modeLabel()}</span>
           <button
-            onClick={() => profileRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            onClick={() => setProfileOpen(true)}
             title="Профиль: подписка и привязанные аккаунты"
             className="relative flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-base hover:border-zinc-500"
           >
@@ -715,22 +715,30 @@ export default function Home() {
         </details>
       )}
 
-      <details ref={profileRef} className="mt-6 scroll-mt-4 rounded-2xl border border-zinc-800/80 bg-brand-panel">
-        <summary className="flex cursor-pointer list-none items-center justify-between p-5">
-          <span>
-            <span className="text-xs font-bold tracking-widest text-zinc-500">ПРОФИЛЬ</span>
-            <span className="ml-3 text-base font-bold">
-              Профиль{" "}
-              {license.active ? (
-                <span className="text-brand-cyan">· {license.plan || "активна"}</span>
-              ) : (
-                <span className="text-zinc-600">· без подписки</span>
-              )}
-            </span>
-          </span>
-          <span className="text-zinc-500">▾</span>
-        </summary>
-        <div className="px-5 pb-5">
+      {profileOpen && (
+        <div className="fixed inset-0 z-50" role="dialog" aria-label="Профиль">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setProfileOpen(false)} />
+          <aside className="drawer-in absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-zinc-800 bg-brand-panel">
+            <div className="flex items-center justify-between border-b border-zinc-800/80 p-5">
+              <span>
+                <span className="text-xs font-bold tracking-widest text-zinc-500">ПРОФИЛЬ</span>
+                <span className="ml-3 text-base font-bold">
+                  {license.active ? (
+                    <span className="text-brand-cyan">{license.plan || "активна"}</span>
+                  ) : (
+                    <span className="text-zinc-500">без подписки</span>
+                  )}
+                </span>
+              </span>
+              <button
+                onClick={() => setProfileOpen(false)}
+                title="Закрыть"
+                className="icon-btn rounded-lg px-2 py-1 text-lg text-zinc-400 hover:text-zinc-100"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
           {license.active && license.exp ? (
             <p className="text-sm text-zinc-400">
               Подписка активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}.{" "}
@@ -818,8 +826,10 @@ export default function Home() {
               </div>
             </div>
           </div>
+            </div>
+          </aside>
         </div>
-      </details>
+      )}
 
       {clips.length > 0 && (
         <section className="mt-10 pb-12">
