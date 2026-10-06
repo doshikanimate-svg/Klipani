@@ -102,6 +102,11 @@ def fade_suffix(duration: float, fade_duration: float = 0.4) -> str:
 WATERMARK_FONT = "/Library/Fonts/Roboto-Bold.ttf"
 WATERMARK_FONT_FALLBACK = "/System/Library/Fonts/Helvetica.ttc"
 WATERMARK_LOGO_HEIGHT = 48
+WATERMARK_TEXT_SIZE = 44
+WATERMARK_LOGO_GAP = 14
+# drawtext line height is a bit taller than the font size; used to centre the
+# nickname against the logo so both sit on one line.
+WATERMARK_TEXT_HEIGHT = 52
 # TikTok/Shorts UI overlays: top search bar (~150px), right action rail (~160px),
 # bottom captions + progress (~300px). Keep the watermark clear of all of them.
 WATERMARK_TOP = 170
@@ -140,6 +145,7 @@ def resolve_logo(platform: str, storage_dir) -> Optional[str]:
     try:
         import requests
 
+        cached.parent.mkdir(parents=True, exist_ok=True)
         info = requests.get(
             LOGO_API,
             params={"action": "query", "titles": filename, "prop": "imageinfo",
@@ -164,6 +170,21 @@ def resolve_logo(platform: str, storage_dir) -> Optional[str]:
         return None
 
 
+def logo_display_width(path) -> int:
+    """Width of the logo after `scale=-2:48`, read from the PNG header."""
+    try:
+        header = path.read_bytes()[:24]
+        if header[:8] == b"\x89PNG\r\n\x1a\n":
+            width = int.from_bytes(header[16:20], "big")
+            height = int.from_bytes(header[20:24], "big")
+            if width > 0 and height > 0:
+                scaled = round(width * WATERMARK_LOGO_HEIGHT / height)
+                return max(2, int(scaled) // 2 * 2)  # scale=-2 keeps width even
+    except (OSError, ValueError):
+        pass
+    return WATERMARK_LOGO_HEIGHT
+
+
 def watermark_spec(
     enabled: bool,
     platform: str,
@@ -177,7 +198,8 @@ def watermark_spec(
     Returns {"logo": Path|None, "draw": <drawtext fragment>, "overlay": "X:Y"}.
     Logo: custom storage/watermarks/{twitch,youtube}.png wins, else the
     official logo is auto-downloaded and cached. Text-only when offline.
-    Positions respect TikTok/Shorts UI safe zones (not at the edges).
+    Logo and nickname sit on one horizontal line (icon to the left of the text),
+    positions respect TikTok/Shorts UI safe zones (not at the edges).
     """
     nickname = (text or "").strip()
     if not enabled or not nickname:
@@ -196,26 +218,29 @@ def watermark_spec(
     text_h = "text_h"
     margin_x = WATERMARK_RIGHT if right else WATERMARK_LEFT
     if logo_path is not None:
-        if position == "top-right":
-            overlay = f"W-w-{margin_x}:{WATERMARK_TOP}"
-        elif position == "top-left":
-            overlay = f"{margin_x}:{WATERMARK_TOP}"
-        elif position == "bottom-right":
-            overlay = f"W-w-{margin_x}:H-h-{WATERMARK_BOTTOM}"
+        logo_w = logo_display_width(logo_path)
+        group_h = max(WATERMARK_LOGO_HEIGHT, WATERMARK_TEXT_HEIGHT)
+        group_y = (
+            f"H-{WATERMARK_BOTTOM}-{group_h}" if bottom else WATERMARK_TOP
+        )
+        logo_y = f"{group_y}+{(group_h - WATERMARK_LOGO_HEIGHT) // 2}"
+        text_y = f"{group_y}+{(group_h - WATERMARK_TEXT_HEIGHT) // 2}"
+        if right:
+            logo_x = f"W-{margin_x}-{logo_w}"
+            x = f"W-{margin_x}-{logo_w}-{WATERMARK_LOGO_GAP}-text_w"
         else:
-            overlay = f"{margin_x}:H-h-{WATERMARK_BOTTOM}"
-        gap = WATERMARK_LOGO_HEIGHT + 16
-        if bottom:
-            y = f"H-{text_h}-{WATERMARK_BOTTOM + gap}"
-        else:
-            y = str(WATERMARK_TOP + gap)
+            logo_x = str(margin_x)
+            x = str(margin_x + logo_w + WATERMARK_LOGO_GAP)
+        overlay = f"{logo_x}:{logo_y}"
+        y = text_y
     else:
         overlay = ""
         y = f"H-{text_h}-{WATERMARK_BOTTOM}" if bottom else str(WATERMARK_TOP)
-    x = f"w-text_w-{margin_x}" if right else str(margin_x)
+        x = f"w-text_w-{margin_x}" if right else str(margin_x)
     draw = (
         f"drawtext=fontfile='{_watermark_font()}':textfile='{textfile}'"
-        f":fontsize=44:fontcolor=white:borderw=2:bordercolor=black@0.8:x={x}:y={y}"
+        f":fontsize={WATERMARK_TEXT_SIZE}:fontcolor=white:borderw=2:bordercolor=black@0.8"
+        f":x={x}:y={y}"
     )
     return {"logo": logo_path, "draw": draw, "overlay": overlay}
 

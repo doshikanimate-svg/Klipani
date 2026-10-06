@@ -37,9 +37,11 @@ def _apply_watermark(video_part: str, watermark: Optional[dict]) -> str:
     if not watermark:
         return video_part + "[vout]"
     if watermark.get("logo"):
+        from ..services.effect_service import WATERMARK_LOGO_HEIGHT
+
         return (
             video_part + "[vpre];"
-            f"movie='{_escape_subtitles_path(watermark['logo'])}',scale=-2:48[wm];"
+            f"movie='{_escape_subtitles_path(watermark['logo'])}',scale=-2:{WATERMARK_LOGO_HEIGHT}[wm];"
             f"[vpre][wm]overlay={watermark['overlay']}[vmd];"
             f"[vmd]{watermark['draw']}[vout]"
         )

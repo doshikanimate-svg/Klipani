@@ -55,7 +55,7 @@ def test_sfx_mix_chain_delays_and_fades() -> None:
 
 
 def test_watermark_positions_avoid_edges(tmp_path) -> None:
-    from app.services.effect_service import watermark_spec
+    from app.services.effect_service import WATERMARK_BOTTOM, WATERMARK_TOP, watermark_spec
 
     (tmp_path / "clips").mkdir()
     (tmp_path / "watermarks").mkdir()
@@ -64,9 +64,59 @@ def test_watermark_positions_avoid_edges(tmp_path) -> None:
     assert "y=170" in spec["draw"] or ":170" in spec["overlay"]
     assert "Roboto-Bold" in spec["draw"]
     spec_br = watermark_spec(True, "youtube", "nick", "bottom-right", tmp_path, "c2")
-    assert "w-text_w-180" in spec_br["draw"] and "H-text_h-394" in spec_br["draw"]
+    assert "W-180" in spec_br["draw"] and f"H-{WATERMARK_BOTTOM}" in spec_br["draw"]
     assert watermark_spec(False, "twitch", "nick", "top-left", tmp_path, "c3") is None
     assert watermark_spec(True, "twitch", "   ", "top-left", tmp_path, "c4") is None
+
+
+def test_watermark_logo_sits_beside_nickname(tmp_path) -> None:
+    """Icon and nickname share one line: logo right of the text on left anchors,
+    text left of the logo on right anchors."""
+    import struct
+    import zlib
+
+    from app.services.effect_service import (
+        WATERMARK_LOGO_GAP,
+        watermark_spec,
+    )
+
+    def png(width: int, height: int) -> bytes:
+        def chunk(tag: bytes, data: bytes) -> bytes:
+            body = tag + data
+            return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body))
+
+        header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+        raw = b"".join(b"\x00" + b"\x00\x00\x00\x00" * width for _ in range(height))
+        return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(
+            b"IDAT", zlib.compress(raw)
+        ) + chunk(b"IEND", b"")
+
+    (tmp_path / "clips").mkdir()
+    (tmp_path / "watermarks").mkdir()
+    # 16:9 logo at height 48 -> width 84
+    (tmp_path / "watermarks" / "twitch.png").write_bytes(png(320, 180))
+
+    left = watermark_spec(True, "twitch", "nick", "top-left", tmp_path, "s1")
+    assert left["overlay"] == "40:170+2"          # logo anchored, text after it
+    # text starts after logo width + gap: 40 + 84 + 14 = 138
+    assert left["draw"].endswith(f"x=138:y=170+0")
+    assert WATERMARK_LOGO_GAP == 14
+
+    right = watermark_spec(True, "twitch", "nick", "top-right", tmp_path, "s2")
+    assert right["overlay"] == "W-180-84:170+2"    # logo pinned to the right margin
+    assert right["draw"].endswith("x=W-180-84-14-text_w:y=170+0")
+
+    bottom = watermark_spec(True, "twitch", "nick", "bottom-left", tmp_path, "s3")
+    assert "H-330-52" in bottom["overlay"]          # whole group above the safe zone
+    assert "y=H-330-52+0" in bottom["draw"]
+
+
+def test_logo_display_width_from_png_header(tmp_path) -> None:
+    from app.services.effect_service import WATERMARK_LOGO_HEIGHT, logo_display_width
+
+    broken = tmp_path / "broken.png"
+    broken.write_bytes(b"\x89PNG custom")  # not a real PNG -> square fallback
+    assert logo_display_width(broken) == WATERMARK_LOGO_HEIGHT
 
 
 def test_watermark_custom_logo_wins(tmp_path) -> None:
@@ -78,7 +128,8 @@ def test_watermark_custom_logo_wins(tmp_path) -> None:
     custom.write_bytes(b"\x89PNG custom")
     assert resolve_logo("twitch", tmp_path) == str(custom)
     spec = watermark_spec(True, "twitch", "nick", "top-right", tmp_path, "c5")
-    assert spec is not None and spec["overlay"] == "W-w-180:170"
+    # unreadable PNG -> square fallback width 48
+    assert spec is not None and spec["overlay"] == "W-180-48:170+2"
 
 
 def test_category_affinity() -> None:
