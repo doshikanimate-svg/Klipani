@@ -68,6 +68,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | undefined>();
   const input = useRef<HTMLInputElement>(null);
+  const profileRef = useRef<HTMLElement>(null);
   const pollRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -429,6 +430,18 @@ export default function Home() {
             </span>
           )}
           <span className="rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1 text-xs text-zinc-400">{modeLabel()}</span>
+          <button
+            onClick={() => profileRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            title="Профиль: подписка и привязанные аккаунты"
+            className="relative flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-base hover:border-zinc-500"
+          >
+            👤
+            <span
+              className={`absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-zinc-950 ${
+                license.active ? "bg-brand-cyan" : "bg-zinc-600"
+              }`}
+            />
+          </button>
         </div>
       </header>
 
@@ -702,7 +715,7 @@ export default function Home() {
         </details>
       )}
 
-      <details className="mt-6 rounded-2xl border border-zinc-800/80 bg-brand-panel">
+      <details ref={profileRef} className="mt-6 scroll-mt-4 rounded-2xl border border-zinc-800/80 bg-brand-panel">
         <summary className="flex cursor-pointer list-none items-center justify-between p-5">
           <span>
             <span className="text-xs font-bold tracking-widest text-zinc-500">ПРОФИЛЬ</span>
