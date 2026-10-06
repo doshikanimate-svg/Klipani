@@ -104,7 +104,9 @@ app = FastAPI(title="KLIPANI", version="0.3.0", lifespan=lifespan)
 async def license_gate(request: Request, call_next):
     """Paid work requires a valid key. Read-only endpoints stay open so the user
     can still see their clips and buy a subscription."""
-    if not settings.license_enforced:
+    # Read through get_settings() rather than the module-level `settings`: tests
+    # clear the cache and rebuild Settings, and the gate must follow that.
+    if not get_settings().license_enforced:
         return await call_next(request)
     method, path = request.method, request.url.path
     # Bot/payment endpoints run server-side on the host and have no local key.

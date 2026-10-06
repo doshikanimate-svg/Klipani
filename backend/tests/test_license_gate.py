@@ -14,15 +14,19 @@ def client(monkeypatch):
     """API with the license gate ON and an isolated settings store."""
     from app.config import get_settings
 
-    settings = get_settings()
-    monkeypatch.setattr(settings, "license_enforced", True, raising=False)
-    monkeypatch.setattr(settings, "license_secret", "test-secret", raising=False)
+    # Env vars + cache_clear so a rebuilt Settings also has the gate ON;
+    # the suite-wide fixture in conftest.py turns it off for every other test.
+    monkeypatch.setenv("LICENSE_ENFORCED", "true")
+    monkeypatch.setenv("LICENSE_SECRET", "test-secret")
+    get_settings.cache_clear()
+    assert get_settings().license_enforced is True
     set_private("license_key", "")
     from app.main import app
 
     with TestClient(app) as test_client:
         yield test_client
     set_private("license_key", "")
+    get_settings.cache_clear()
 
 
 def test_write_endpoints_require_license(client) -> None:
