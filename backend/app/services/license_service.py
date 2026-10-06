@@ -17,8 +17,8 @@ from typing import Optional
 from ..config import get_settings
 
 PLANS = {
-    "trial": {"days": 7, "price_rub": 0, "title": "Пробная · 7 дней"},
-    "month": {"days": 30, "price_rub": 990, "title": "Месяц · 990 ₽"},
+    "trial": {"days": 3, "price_rub": 0, "title": "Пробная · 3 дня"},
+    "month": {"days": 30, "price_rub": 2490, "title": "Месяц · 2490 ₽"},
 }
 
 PREFIX = "KLIP-"

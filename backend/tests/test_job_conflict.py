@@ -168,12 +168,12 @@ def test_da_code_extract_and_match(monkeypatch, tmp_path) -> None:
         assert da.process_donations([
             {"id": 1, "amount": 0, "currency": "RUB", "message": "просто донат"},
             {"id": 2, "amount": 100, "currency": "RUB", "message": f"вот код {code}"},
-        ]) == 0  # недоплата: 100 < 990
+        ]) == 0  # недоплата: 100 < 2490
         assert da.process_donations([
-            {"id": 3, "amount": 990, "currency": "RUB", "message": f"оплата {code}"},
+            {"id": 3, "amount": 2490, "currency": "RUB", "message": f"оплата {code}"},
         ]) == 1
         assert da.process_donations([
-            {"id": 3, "amount": 990, "currency": "RUB", "message": f"оплата {code}"},
+            {"id": 3, "amount": 2490, "currency": "RUB", "message": f"оплата {code}"},
         ]) == 0  # повтор не засчитывается дважды
     finally:
         lic.get_settings.cache_clear()

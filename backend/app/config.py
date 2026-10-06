@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     license_secret: str = ""
     telegram_webhook_secret: str = ""
+    tg_admin_username: str = "LiveForWork1"
+    crypto_wallet: str = ""
     public_url: str = ""
     da_client_id: str = ""
     da_client_secret: str = ""
