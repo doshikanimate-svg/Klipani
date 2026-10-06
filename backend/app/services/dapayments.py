@@ -174,8 +174,17 @@ def create_payment_code(tg_id: int, plan: str) -> str:
     connection = sqlite3.connect(_bot_db())
     try:
         _ensure_pending_table(connection)
+        try:
+            connection.execute("ALTER TABLE pending_payments ADD COLUMN method TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            connection.execute("ALTER TABLE pending_payments ADD COLUMN status TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
         connection.execute(
-            "INSERT INTO pending_payments VALUES (?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO pending_payments(code, tg_id, plan, created_at, method, status)"
+            " VALUES (?, ?, ?, ?, 'da', 'new')",
             (code, int(tg_id), plan, int(time.time())),
         )
         connection.commit()
