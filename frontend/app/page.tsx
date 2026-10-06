@@ -68,7 +68,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | undefined>();
   const input = useRef<HTMLInputElement>(null);
-  const profileRef = useRef<HTMLElement>(null);
+  const profileRef = useRef<HTMLDetailsElement>(null);
   const pollRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
