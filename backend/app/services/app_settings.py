@@ -5,6 +5,7 @@ DEFAULTS = {
     "watermark_platform": "twitch",
     "watermark_text": "",
     "watermark_position": "top-left",
+    "tg_chat_id": "",
 }
 
 
@@ -31,6 +32,10 @@ def update(values: dict) -> dict:
         raise ValueError("Некорректный флаг.")
     if "watermark_text" in clean:
         clean["watermark_text"] = clean["watermark_text"].strip()[:60]
+    if "tg_chat_id" in clean:
+        clean["tg_chat_id"] = clean["tg_chat_id"].strip()
+        if clean["tg_chat_id"] and not clean["tg_chat_id"].lstrip("-").isdigit():
+            raise ValueError("Chat ID — только цифры.")
     with database() as db:
         for key, value in clean.items():
             db.execute("INSERT OR REPLACE INTO app_settings VALUES (?, ?)", (key, value))

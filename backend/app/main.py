@@ -516,13 +516,13 @@ def publish_clip_tiktok(clip_id: str, body: PublishRequest) -> dict:
 
 @app.post("/api/clips/{clip_id}/send-telegram")
 def send_clip_telegram(clip_id: str) -> dict:
-    from .services.telegram_send import known_chat_ids, send_clip
+    from .services.telegram_send import recipient_chat_ids, send_clip
 
     clip = get_clip(clip_id)
     if not clip:
         raise HTTPException(404, "Клип не найден.")
-    if not known_chat_ids():
-        raise HTTPException(409, "Бот никого не знает: откройте бота в Telegram и нажмите /start.")
+    if not recipient_chat_ids():
+        raise HTTPException(409, "Telegram не привязан: узнайте Chat ID командой /myid в боте и впишите в профиле.")
     try:
         result = send_clip(clip["output_path"], caption=f"🎬 {clip_id[:6]}")
     except RuntimeError as error:

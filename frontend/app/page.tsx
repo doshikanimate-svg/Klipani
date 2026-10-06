@@ -705,13 +705,13 @@ export default function Home() {
       <details className="mt-6 rounded-2xl border border-zinc-800/80 bg-brand-panel">
         <summary className="flex cursor-pointer list-none items-center justify-between p-5">
           <span>
-            <span className="text-xs font-bold tracking-widest text-zinc-500">ДОСТУП</span>
+            <span className="text-xs font-bold tracking-widest text-zinc-500">ПРОФИЛЬ</span>
             <span className="ml-3 text-base font-bold">
-              Подписка{" "}
+              Профиль{" "}
               {license.active ? (
-                <span className="text-brand-cyan">· активна{license.plan ? ` (${license.plan})` : ""}</span>
+                <span className="text-brand-cyan">· {license.plan || "активна"}</span>
               ) : (
-                <span className="text-zinc-600">· нет ключа</span>
+                <span className="text-zinc-600">· без подписки</span>
               )}
             </span>
           </span>
@@ -720,11 +720,18 @@ export default function Home() {
         <div className="px-5 pb-5">
           {license.active && license.exp ? (
             <p className="text-sm text-zinc-400">
-              Активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}. Новый ключ можно вставить ниже — старый заменится.
+              Подписка активна до {new Date(license.exp * 1000).toLocaleDateString("ru-RU")}.{" "}
+              <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                Продлить в боте →
+              </a>
             </p>
           ) : (
             <p className="text-sm text-zinc-400">
-              Купите подписку в Telegram-боте и вставьте ключ сюда. Оплата пока тестовая (заглушка).
+              Купите подписку в Telegram-боте{" "}
+              <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                @Klipani_bot
+              </a>{" "}
+              и вставьте ключ сюда.
             </p>
           )}
           <div className="mt-3 flex gap-2">
@@ -741,6 +748,62 @@ export default function Home() {
             >
               {licenseBusy ? "…" : "Активировать"}
             </button>
+          </div>
+          <div className="mt-5 border-t border-zinc-800/80 pt-4">
+            <p className="text-xs font-bold tracking-widest text-zinc-500">ПРИВЯЗАННЫЕ АККАУНТЫ</p>
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-zinc-300">
+                  ▶️ YouTube{" "}
+                  <span className={yt?.connected ? "text-brand-cyan" : "text-zinc-600"}>
+                    {yt?.connected ? `· ${yt.channel || "подключён"}` : "· не привязан"}
+                  </span>
+                </span>
+                {!yt?.connected && (
+                  <span className="text-xs text-zinc-500">Привязка — на карточке клипа, кнопка публикации</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-zinc-300">
+                  🎵 TikTok{" "}
+                  <span className={tt?.connected ? "text-brand-cyan" : "text-zinc-600"}>
+                    {tt?.connected ? "· подключён" : "· не привязан (скоро)"}
+                  </span>
+                </span>
+              </div>
+              <div className="text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-zinc-300">
+                    ✈️ Telegram{" "}
+                    <span className={wm.tg_chat_id ? "text-brand-cyan" : "text-zinc-600"}>
+                      {wm.tg_chat_id ? `· ${wm.tg_chat_id}` : "· не привязан"}
+                    </span>
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Узнайте Chat ID командой /myid в боте{" "}
+                  <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                    @Klipani_bot
+                  </a>{" "}
+                  и впишите сюда — кнопка ✈️ на клипе отправит видео одной кнопкой.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={wm.tg_chat_id || ""}
+                    onChange={(e) => setWm((prev) => ({ ...prev, tg_chat_id: e.target.value }))}
+                    placeholder="123456789"
+                    inputMode="numeric"
+                    className="flex-1 rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 font-mono text-sm text-zinc-200"
+                  />
+                  <button
+                    onClick={saveWm}
+                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+                  >
+                    Сохранить
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </details>

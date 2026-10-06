@@ -18,6 +18,29 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def recipient_chat_ids() -> list:
+    """Linked chat from app settings first, then bot subscribers."""
+    from .app_settings import get_all
+
+    try:
+        linked = (get_all().get("tg_chat_id") or "").strip()
+    except Exception:
+        linked = ""
+    ids = []
+    if linked:
+        try:
+            ids.append(int(linked))
+        except ValueError:
+            pass
+    ids.extend(known_chat_ids())
+    seen, unique = set(), []
+    for chat_id in ids:
+        if chat_id not in seen:
+            seen.add(chat_id)
+            unique.append(chat_id)
+    return unique
+
+
 def known_chat_ids() -> list:
     db_path = _project_root() / "bot" / "bot.db"
     if not db_path.exists():
@@ -43,9 +66,9 @@ def send_clip(clip_path: str, caption: str = "") -> dict:
         raise RuntimeError("Файл клипа не найден.")
     if path.stat().st_size > MAX_BYTES:
         raise RuntimeError("Клип больше 50 МБ — лимит Telegram Bot API.")
-    chat_ids = known_chat_ids()
+    chat_ids = recipient_chat_ids()
     if not chat_ids:
-        raise RuntimeError("Бот никого не знает: откройте бота в Telegram и нажмите /start.")
+        raise RuntimeError("Telegram не привязан: укажите Chat ID в профиле (команда /myid в боте).")
 
     from aiogram import Bot
     from aiogram.types import FSInputFile

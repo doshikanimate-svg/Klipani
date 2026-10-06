@@ -232,6 +232,14 @@ async def cmd_status(message: Message) -> None:
     )
 
 
+async def cmd_myid(message: Message) -> None:
+    await message.answer(
+        f"🆔 Ваш Chat ID:\n<code>{message.from_user.id}</code>\n\n"
+        "Вставьте его в приложении: Профиль → Telegram.",
+        parse_mode="HTML",
+    )
+
+
 async def cmd_mykey(message: Message) -> None:
     with _db() as db:
         row = db.execute(
@@ -599,6 +607,7 @@ def create_bot():
     dispatcher.message.register(cmd_start, CommandStart())
     dispatcher.message.register(cmd_status, Command("status"))
     dispatcher.message.register(cmd_mykey, Command("mykey"))
+    dispatcher.message.register(cmd_myid, Command("myid"))
     dispatcher.message.register(cmd_admin, Command("admin"))
     dispatcher.message.register(
         on_menu_text,

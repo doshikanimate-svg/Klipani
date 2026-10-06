@@ -186,3 +186,19 @@ def test_telegram_webhook_guards() -> None:
         assert response.status_code in (403, 503)
         check = client.post("/api/payments/donationalerts/check")
         assert check.status_code == 409
+
+
+def test_tg_chat_id_setting_and_recipients(monkeypatch, tmp_path) -> None:
+    from app.services import app_settings as appstore
+    from app.services import telegram_send as tgsend
+
+    assert appstore.update({"tg_chat_id": "  12345 "})["tg_chat_id"] == "12345"
+    try:
+        appstore.update({"tg_chat_id": "abc"})
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    monkeypatch.setattr(tgsend, "known_chat_ids", lambda: [999])
+    assert tgsend.recipient_chat_ids()[0] == 12345
+    appstore.update({"tg_chat_id": ""})
+    assert tgsend.recipient_chat_ids() == [999]
