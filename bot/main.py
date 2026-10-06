@@ -96,19 +96,40 @@ async def cmd_start(message: Message) -> None:
     )
 
 
+async def _safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> None:
+    """edit_text that ignores 'message is not modified' (double taps, retried updates)."""
+    from aiogram.exceptions import TelegramBadRequest
+
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=reply_markup)
+    except TelegramBadRequest as error:
+        if "message is not modified" not in str(error):
+            raise
+
+
+async def _on_aiogram_error(event) -> bool:
+    from aiogram.exceptions import TelegramBadRequest
+
+    exc = event.exception
+    if isinstance(exc, TelegramBadRequest) and "message is not modified" in str(exc):
+        return True
+    logger.warning("unhandled bot update error: %r", exc)
+    return True
+
+
 async def on_menu(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         "Главное меню <b>KLIPANI</b> — чем помочь?",
-        parse_mode="HTML",
         reply_markup=main_menu_keyboard(),
     )
     await callback.answer()
 
 
 async def on_about(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         ABOUT_TEXT,
-        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📣 Telegram-канал", url=CHANNEL_URL)],
             [InlineKeyboardButton(text="← В меню", callback_data="menu")],
@@ -148,22 +169,22 @@ async def cmd_mykey(message: Message) -> None:
 
 
 async def on_plans(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         "💳 <b>Тарифы KLIPANI:</b>\n\n" + "\n".join(
             f"• <b>{info['title']}</b> — {info['days']} дней"
             for info in PLANS.values()
         ) + "\n\nНажмите на тариф, чтобы оформить.",
-        parse_mode="HTML",
         reply_markup=plans_keyboard(),
     )
     await callback.answer()
 
 
 async def on_buy(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         "🛒 <b>Покупка подписки:</b> выберите тариф ниже — после тестовой оплаты "
         "бот сразу выдаст лицензионный ключ.",
-        parse_mode="HTML",
         reply_markup=plans_keyboard(),
     )
     await callback.answer()
@@ -175,10 +196,10 @@ async def on_plan(callback: CallbackQuery) -> None:
     if not info:
         await callback.answer("Неизвестный тариф.", show_alert=True)
         return
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         f"📦 <b>{info['title']}</b>\nСрок: {info['days']} дней.\n\n"
         "Нажмите «Оплатить», затем подтвердите тестовую оплату.",
-        parse_mode="HTML",
         reply_markup=pay_keyboard(plan_id),
     )
     await callback.answer()
@@ -192,24 +213,24 @@ async def on_pay(callback: CallbackQuery) -> None:
     settings = get_settings()
     if da.is_configured() and settings.da_donate_url:
         code = da.create_payment_code(callback.from_user.id, plan_id)
-        await callback.message.edit_text(
+        await _safe_edit(
+            callback,
             f"💳 Оплата подписки <b>{info['title']}</b>: <b>{info['price_rub']} ₽</b>\n\n"
             f"1. Перейдите по ссылке: {settings.da_donate_url}\n"
             f"2. Задонатьте <b>{info['price_rub']} ₽</b> (или больше)\n"
             f"3. В сообщении к донату укажите код: <code>{code}</code>\n\n"
             "Ключ придёт сюда автоматически в течение пары минут после доната.",
-            parse_mode="HTML",
             reply_markup=back_menu_keyboard(),
         )
         await callback.answer()
         return
     invoice_id = f"TEST-{callback.from_user.id}-{int(time.time())}"
     # STUB: real acquiring goes here (provider invoice + webhook callback).
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         f"🧾 Счёт <code>{invoice_id}</code>: <b>{info['price_rub']} ₽</b>\n"
         "⚠️ ТЕСТОВЫЙ РЕЖИМ: оплата — заглушка, деньги не списываются.\n"
         "Эквайринг будет подключён позже.",
-        parse_mode="HTML",
         reply_markup=confirm_keyboard(plan_id),
     )
     await callback.answer()
@@ -229,12 +250,12 @@ async def on_confirm(callback: CallbackQuery) -> None:
         )
         db.commit()
     days = PLANS[plan_id]["days"]
-    await callback.message.edit_text(
+    await _safe_edit(
+        callback,
         "✅ Оплата (тестовая) принята!\n\n"
         f"🔑 Ваш ключ:\n<code>{issued['key']}</code>\n\n"
         f"Тариф {PLANS[plan_id]['title']} активен.\n"
         "Вставьте ключ в приложении: Подписка → Активировать.",
-        parse_mode="HTML",
     )
     await callback.answer()
     logger.info("issued %s license to tg_id=%s", plan_id, callback.from_user.id)
@@ -268,6 +289,7 @@ def create_bot():
     dispatcher.callback_query.register(on_plan, F.data.startswith("plan:"))
     dispatcher.callback_query.register(on_pay, F.data.startswith("pay:"))
     dispatcher.callback_query.register(on_confirm, F.data.startswith("confirm:"))
+    dispatcher.errors.register(_on_aiogram_error)
     return bot, dispatcher
 
 

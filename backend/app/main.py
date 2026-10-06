@@ -570,8 +570,12 @@ async def telegram_webhook(request: Request) -> dict:
         raise HTTPException(503, "Webhook-режим не активен.")
     from aiogram.types import Update
 
-    update = Update.model_validate(await request.json())
-    await dispatcher.feed_update(bot, update)
+    try:
+        update = Update.model_validate(await request.json())
+        await dispatcher.feed_update(bot, update)
+    except Exception as error:
+        # Never 500 to Telegram: a failing update would be retried in a loop.
+        logger.warning("webhook update failed: %r", error)
     return {"ok": True}
 
 
