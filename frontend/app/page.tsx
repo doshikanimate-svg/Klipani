@@ -1148,7 +1148,7 @@ export default function Home() {
                             disabled={p === "tiktok"}
                             title={p === "tiktok" ? "В разработке" : undefined}
                             onClick={() => setPubProvider(p)}
-                            className={`flex-1 rounded-lg px-3 py-1.5 text-sm ${
+                            className={`icon-btn flex-1 rounded-lg px-3 py-1.5 text-sm ${
                               pubProvider === p ? "bg-zinc-700 text-white" : "bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
                             } disabled:cursor-not-allowed disabled:opacity-50`}
                           >
