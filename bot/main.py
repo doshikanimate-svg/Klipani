@@ -683,7 +683,7 @@ def create_bot():
     dispatcher.message.register(cmd_admin, Command("admin"))
     dispatcher.message.register(
         on_menu_text,
-        F.text.startswith("🛟") | F.text.startswith("ℹ️") | F.text.startswith("💳") | F.text.startswith("🛒"),
+        F.text.startswith("🛟") | F.text.startswith("ℹ️") | F.text.startswith("💳") | F.text.startswith("🛒") | F.text.startswith("📥"),
     )
     dispatcher.callback_query.register(on_menu, F.data == "menu")
     dispatcher.callback_query.register(on_about, F.data == "about")

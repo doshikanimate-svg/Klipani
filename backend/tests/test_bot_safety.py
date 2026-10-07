@@ -69,3 +69,32 @@ def test_reply_menu_buttons() -> None:
     keyboard = bot_main.main_menu_keyboard()
     texts = [button.text for row in keyboard.keyboard for button in row]
     assert texts == ["🛟 Поддержка", "ℹ️ О проекте", "💳 Тарифы", "🛒 Купить подписку", "📥 Скачать приложение"]
+
+
+def test_every_menu_button_gets_an_answer() -> None:
+    """Regression: a keyboard button the dispatcher filter drops stays silent.
+
+    Feeds every button text through on_menu_text with a fake message and
+    requires an answer — exactly the «кнопка есть, тишина» failure.
+    """
+    import asyncio
+
+    import main as bot_main
+
+    class _FakeMessage:
+        def __init__(self, text):
+            self.text = text
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append(text)
+
+    keyboard = bot_main.main_menu_keyboard()
+    texts = [button.text for row in keyboard.keyboard for button in row]
+    for text in texts:
+        message = _FakeMessage(text)
+        asyncio.run(bot_main.on_menu_text(message))
+        assert message.answers, f"no answer for button {text!r}"
+    download = _FakeMessage("📥 Скачать приложение")
+    asyncio.run(bot_main.on_menu_text(download))
+    assert any("Скачать KLIPANI" in answer for answer in download.answers)
