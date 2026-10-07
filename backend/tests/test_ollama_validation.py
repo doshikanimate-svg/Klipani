@@ -73,3 +73,35 @@ def test_chunk_prompt_renders_from_config() -> None:
     assert "до 4 интересных моментов" in prompt
     assert "[0-5] тест" in prompt
     assert "ОТРЫВОК:" in prompt
+
+
+def test_query_chunk_uses_correct_prompts_import(monkeypatch) -> None:
+    """Regression: _query_chunk imported render_chunk_prompt from the wrong
+    package (app.providers.prompts), so every Ollama call died with
+    ModuleNotFoundError and silently fell back to mock."""
+    import io
+    import json
+
+    import app.providers.llm.ollama as oll
+    from app.providers.llm.ollama import OllamaLLMProvider
+
+    payload = {"highlights": [{
+        "start_time": 0, "end_time": 8, "score": 90, "category": "FUNNY",
+        "reason": "смешно", "transcript_excerpt": "ха",
+    }]}
+
+    class _FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return json.dumps({"response": json.dumps(payload)}).encode()
+
+    monkeypatch.setattr(oll, "urlopen", lambda *a, **k: _FakeResponse())
+    provider = OllamaLLMProvider()
+    segments = [{"start": 0.0, "end": 8.0, "text": "очень смешно"}]
+    result = provider._query_chunk(segments, 120.0)
+    assert len(result) == 1 and result[0]["category"] == "FUNNY"

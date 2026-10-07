@@ -100,7 +100,7 @@ class OllamaLLMProvider(LLMProvider):
 
     def _query_chunk(self, segments: list[dict], duration: float) -> list[dict]:
         # Compact timestamps: per-segment lines dominate the prompt on long transcripts.
-        from ..prompts import render_chunk_prompt
+        from ...prompts import render_chunk_prompt
 
         transcript = "\n".join(f"[{s['start']:.0f}-{s['end']:.0f}] {s['text']}" for s in segments)
         prompt = render_chunk_prompt(transcript, max_moments=self.CHUNK_MAX_MOMENTS)
