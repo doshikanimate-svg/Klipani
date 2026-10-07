@@ -593,7 +593,12 @@ export default function Home() {
           onClick={() => input.current?.click()}
           className="cursor-pointer rounded-2xl border-2 border-dashed border-zinc-700 px-6 py-12 text-center transition hover:border-brand-cyan/60 hover:bg-brand-cyan/5"
         >
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-cyan/10 text-2xl">⬆</div>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-cyan/10">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d4d4d8" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 19V5" />
+              <path d="M5 12l7-7 7 7" />
+            </svg>
+          </div>
           <div className="text-lg font-semibold">{loading ? "Загрузка и проверка видео…" : "Перетащите запись стрима сюда"}</div>
           <div className="mt-2 text-sm text-zinc-400">
             или <span className="font-medium text-brand-cyan">выберите файл</span>
