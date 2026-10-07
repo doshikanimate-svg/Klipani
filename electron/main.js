@@ -190,6 +190,7 @@ async function createWindow() {
     height: 900,
     title: "KLIPANI",
     backgroundColor: "#0B0B10",
+    autoHideMenuBar: true,
     webPreferences: { contextIsolation: true },
   });
   const url = isPackaged() || process.env.KLIPANI_FRONT_URL

@@ -37,6 +37,11 @@ jobs:
           npm ci
           npm run build
 
+      - name: Frontend standalone assets
+        # Next's standalone server needs .next/static + public next to server.js;
+        # without them the UI loads unstyled with broken images.
+        run: node -e "const fs=require('fs');fs.cpSync('frontend/.next/static','frontend/.next/standalone/.next/static',{recursive:true});fs.cpSync('frontend/public','frontend/.next/standalone/public',{recursive:true});console.log('standalone assets ok')"
+
       - name: Desktop installer (electron-builder)
         run: |
           npm ci
