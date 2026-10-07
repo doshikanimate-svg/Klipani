@@ -158,14 +158,30 @@ def ensure_daemon(wait_seconds: float = 20.0) -> bool:
     import subprocess
     import time as _time
 
-    if shutil.which("ollama") is None:
+    binary = shutil.which("ollama")
+    if binary is None:
+        # GUI-launched apps (and the packaged build) have a minimal PATH that
+        # misses /usr/local/bin and Homebrew prefixes — check them directly.
+        from pathlib import Path as _Path
+
+        for candidate in (
+            "/usr/local/bin/ollama",
+            "/opt/homebrew/bin/ollama",
+            str(_Path.home() / ".ollama" / "bin" / "ollama"),
+            "C:\\Program Files\\Ollama\\ollama.exe",
+            str(_Path.home() / "AppData" / "Local" / "Programs" / "Ollama" / "ollama.exe"),
+        ):
+            if _Path(candidate).is_file():
+                binary = candidate
+                break
+    if binary is None:
         return False
     try:
         if _spawned is not None and _spawned.poll() is None:
             pass  # already starting, just wait below
         else:
             _spawned = subprocess.Popen(
-                ["ollama", "serve"],
+                [binary, "serve"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
