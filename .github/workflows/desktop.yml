@@ -42,10 +42,19 @@ jobs:
           npm ci
           npx electron-builder --config electron/builder.json --publish never
 
+      # Only installers + updater metadata. Never the unpacked app dirs:
+      # uploading those spams the release with thousands of junk files
+      # and trips GitHub's secondary rate limit.
       - uses: actions/upload-artifact@v4
         with:
           name: klipani-${{ matrix.arch }}
-          path: release/
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+            release/*.yml
+            release/*.yaml
+            release/*.blockmap
 
   release:
     # Attaches both installers (+ updater metadata) to the GitHub Release
@@ -56,6 +65,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -64,4 +75,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/**/*
+          body_path: .github/RELEASE_NOTES.md
           fail_on_unmatched_files: true
