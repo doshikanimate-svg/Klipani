@@ -99,7 +99,9 @@ function spawnBackend() {
 }
 
 function frontendDir() {
-  if (isPackaged()) return path.join(resourcesDir(), "frontend", ".next", "standalone");
+  // Packaged files live INSIDE app.asar (builder.json `files`), not next to it.
+  // app.getAppPath() already resolves to .../resources/app.asar when packaged.
+  if (isPackaged()) return path.join(app.getAppPath(), "frontend", ".next", "standalone");
   return path.join(__dirname, "..", "frontend", ".next", "standalone");
 }
 

@@ -28,7 +28,8 @@
   },
   "win": {
     "icon": "electron/icon.ico",
-    "target": ["nsis"]
+    "target": ["nsis"],
+    "artifactName": "${productName}-Setup-${version}.${ext}"
   },
   "nsis": {
     "oneClick": false,
