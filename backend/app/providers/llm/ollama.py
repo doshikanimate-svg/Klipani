@@ -212,6 +212,8 @@ def stop_spawned_daemon() -> None:
 
 def llm_state() -> dict:
     """First-run screen data for the Qwen model: daemon? model? pulling?"""
+    import sys as _sys
+
     from ...db import database
 
     settings = get_settings()
@@ -225,6 +227,16 @@ def llm_state() -> dict:
             pulling = json.loads(row["value"])
     except (ValueError, TypeError):
         pulling = {"active": False}
+    platform = _sys.platform
+    if platform == "darwin":
+        download_url = "https://ollama.com/download/Ollama-darwin.zip"
+        os_label = "macOS"
+    elif platform == "win32":
+        download_url = "https://ollama.com/download/OllamaSetup.exe"
+        os_label = "Windows"
+    else:
+        download_url = "https://ollama.com/download/ollama-linux-amd64.tgz"
+        os_label = "Linux"
     return {
         "provider": "ollama",
         "model": settings.llm_model,
@@ -233,6 +245,8 @@ def llm_state() -> dict:
         "pulling": bool(pulling.get("active")),
         "percent": pulling.get("percent"),
         "install_url": "https://ollama.com/download",
+        "download_url": download_url,
+        "os_label": os_label,
     }
 
 

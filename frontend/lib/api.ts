@@ -146,11 +146,11 @@ export const api = {
       { method: "POST" },
     ),
   llmState: () =>
-    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string }>(
+    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string; download_url: string; os_label: string }>(
       "/api/llm",
     ),
   llmPull: () =>
-    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string }>(
+    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string; download_url: string; os_label: string }>(
       "/api/llm/pull",
       { method: "POST" },
     ),
