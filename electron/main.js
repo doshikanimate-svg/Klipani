@@ -44,19 +44,41 @@ function dataDir() {
 }
 
 function waitForBackend(timeoutMs = 60000) {
+  return waitForPort(BACKEND_URL, timeoutMs);
+}
+
+function waitForPort(url, timeoutMs = 60000) {
   const started = Date.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
-      fetch(BACKEND_URL)
+      fetch(url)
         .then((r) => (r.ok ? resolve(true) : retry()))
         .catch(retry);
     };
     const retry = () => {
-      if (Date.now() - started > timeoutMs) reject(new Error("backend timeout"));
+      if (Date.now() - started > timeoutMs) reject(new Error(`timeout waiting for ${url}`));
       else setTimeout(tick, 800);
     };
     tick();
   });
+}
+
+function logFile(name) {
+  try {
+    const dir = path.join(dataDir(), "logs");
+    fs.mkdirSync(dir, { recursive: true });
+    return path.join(dir, name);
+  } catch {
+    return null;
+  }
+}
+
+function pipeToFile(child, file) {
+  if (!file || !child.stdout) return;
+  const stream = fs.createWriteStream(file, { flags: "a" });
+  stream.write(`\n===== ${new Date().toISOString()} started =====\n`);
+  child.stdout.on("data", (d) => stream.write(d));
+  if (child.stderr) child.stderr.on("data", (d) => stream.write(d));
 }
 
 function spawnBackend() {
@@ -70,6 +92,9 @@ function spawnBackend() {
     stdio: "inherit",
   });
   children.push(child);
+  child.on("exit", (code) => {
+    console.log(`[klipani] backend exited with code ${code}`);
+  });
   return child;
 }
 
@@ -86,13 +111,26 @@ function spawnFrontend() {
     console.log("[klipani] standalone frontend not found:", server);
     return null;
   }
-  const child = spawn(process.execPath, [server], {
+  // NOTE: never spawn process.execPath (Electron) with server.js — Electron
+  // would load it as an app instead of running Node. utilityProcess runs it
+  // as plain Node with asar support, on every platform.
+  const { utilityProcess } = require("electron");
+  const child = utilityProcess.fork(server, [], {
     cwd: dir,
-    env: { ...process.env, PORT: String(FRONTEND_PORT), HOSTNAME: "127.0.0.1" },
-    stdio: "inherit",
+    env: { ...process.env, PORT: String(FRONTEND_PORT), HOSTNAME: "127.0.0.1", HOST: "127.0.0.1" },
+    stdio: "pipe",
+  });
+  pipeToFile(child, logFile("frontend.log"));
+  child.on("exit", (code) => {
+    console.log(`[klipani] frontend exited with code ${code}, see frontend.log`);
   });
   children.push(child);
   return child;
+}
+
+function errorPage(title, details) {
+  const safe = String(details).replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]));
+  return `data:text/html,<html><body style="background:#0B0B10;color:#e4e4e7;font-family:sans-serif;padding:40px"><h2>${title}</h2><pre style="color:#a1a1aa">${safe}</pre></body></html>`;
 }
 
 async function createWindow() {
@@ -106,10 +144,31 @@ async function createWindow() {
   const url = isPackaged() || process.env.KLIPANI_FRONT_URL
     ? `http://127.0.0.1:${FRONTEND_PORT}`
     : "http://localhost:3000";
-  try {
-    await waitForBackend();
-  } catch (error) {
-    console.error("[klipani]", error.message);
+  if (isPackaged()) {
+    try {
+      await waitForBackend();
+    } catch (error) {
+      console.error("[klipani]", error.message);
+      win.loadURL(errorPage("Бэкенд не запустился", `${error.message}\n\nЛоги: ${logFile("backend.log") || "(нет)"}`));
+      return;
+    }
+    try {
+      await waitForPort(`http://127.0.0.1:${FRONTEND_PORT}`, 45000);
+    } catch (error) {
+      console.error("[klipani]", error.message);
+      dialog.showErrorBox(
+        "KLIPANI не запустился",
+        `Интерфейс не отвечает. Бэкенд жив — проверьте http://127.0.0.1:8000/api/health в браузере.\n\nЛог интерфейса: ${logFile("frontend.log") || "(нет)"}`
+      );
+      win.loadURL(errorPage("Интерфейс не запустился", `${error.message}\n\nЛог: ${logFile("frontend.log") || "(нет)"}`));
+      return;
+    }
+  } else {
+    try {
+      await waitForBackend();
+    } catch (error) {
+      console.error("[klipani]", error.message);
+    }
   }
   win.loadURL(url);
 }

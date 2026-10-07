@@ -202,3 +202,61 @@ def test_category_affinity() -> None:
         db.execute("DELETE FROM clip_stats WHERE clip_id IN ('cca','ccb')")
         db.execute("DELETE FROM clips WHERE id IN ('cca','ccb')")
         db.execute("DELETE FROM highlights WHERE id IN ('hha','hhb')")
+
+
+FFMPEG_I_SAMPLE = """\
+ffmpeg version 7.1 Copyright (c) 2000-2024
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from '/tmp/probe_test.mp4':
+  Metadata:
+    major_brand     : isom
+  Duration: 00:00:05.00, start: 0.000000, bitrate: 133 kb/s
+  Stream #0:0[0x1](und): Video: h264 (High) (avc1 / 0x31637661), yuv420p(tv, progressive), 640x360 [SAR 1:1 DAR 16:9], 100 kb/s, 30 fps, 30 tbr, 15360 tbn (default)
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 2 kb/s (default)
+"""
+
+
+def test_ffmpeg_info_parser_ignores_codec_tag() -> None:
+    """The hex codec tag (0x31637661) must not be read as resolution."""
+    from app.utils.ffmpeg import _parse_ffmpeg_info
+
+    info = _parse_ffmpeg_info(FFMPEG_I_SAMPLE)
+    assert (info["width"], info["height"]) == (640, 360)
+    assert info["duration"] == 5.0
+    assert info["fps"] == 30
+    assert info["codec"] == "h264"
+    assert info["audio_streams"] == 1 and info["audio_codec"] == "aac"
+
+
+def test_parse_ffmpeg_info_rejects_audio_only() -> None:
+    from app.utils.ffmpeg import VideoToolError, _parse_ffmpeg_info
+
+    try:
+        _parse_ffmpeg_info("Duration: 00:00:03.00\n  Stream #0:0: Audio: aac, 44100 Hz\n")
+        raise AssertionError("expected VideoToolError")
+    except VideoToolError:
+        pass
+
+
+def test_probe_falls_back_to_bundled_ffmpeg(monkeypatch, tmp_path) -> None:
+    """No system ffprobe (clean Windows): upload probing must still work."""
+    from pathlib import Path
+
+    from app.utils import ffmpeg as ff
+
+    monkeypatch.setattr(ff, "available", lambda cmd: cmd == "ffmpeg")
+    monkeypatch.setattr(ff, "bundled_exe", lambda: None)
+    calls: list = []
+
+    class _Done:
+        stderr = FFMPEG_I_SAMPLE
+        returncode = 1  # ffmpeg -i always exits nonzero without outputs
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        assert command[0] == "ffmpeg" and command[1] == "-i"
+        return _Done()
+
+    monkeypatch.setattr(ff.subprocess, "run", fake_run)
+    info = ff.probe(Path(str(tmp_path / "clip.mp4")))
+    assert (info["width"], info["height"]) == (640, 360)
+    assert calls and calls[0][1] == "-i"

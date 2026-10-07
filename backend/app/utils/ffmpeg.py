@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -128,31 +129,89 @@ def sfx_mix_chain(base_label: str, sounds: list, first_index: int, duration: flo
     return ";".join(parts)
 
 
-def probe(path: Path) -> dict:
-    if not available("ffprobe"):
-        raise VideoToolError("FFmpeg/ffprobe не найден. Установите его командой: brew install ffmpeg")
-    command = ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode:
-        raise VideoToolError("Не удалось прочитать видео. Проверьте, что файл не повреждён.")
-    raw = json.loads(result.stdout)
-    streams = raw.get("streams", [])
-    video = next((s for s in streams if s.get("codec_type") == "video"), None)
-    audio = [s for s in streams if s.get("codec_type") == "audio"]
+def _ffmpeg_binary() -> Optional[str]:
+    """Encoder binary: bundled static FFmpeg first, system fallback."""
+    return bundled_exe() or ("ffmpeg" if available("ffmpeg") else None)
+
+
+def _parse_ffmpeg_info(stderr: str) -> dict:
+    """Parse `ffmpeg -i` output (ffprobe is not shipped on user machines)."""
+    duration = 0.0
+    match = re.search(r"Duration:\s*(\d+):(\d+):([\d.]+)", stderr)
+    if match:
+        hours, minutes, seconds = match.groups()
+        duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    video: Optional[dict] = None
+    audio_count = 0
+    audio_codec: Optional[str] = None
+    for line in stderr.splitlines():
+        stream = re.search(r"Stream #\d+:\d+.*?: (Video|Audio):\s*([a-z0-9_]+)(.*)", line)
+        if not stream:
+            continue
+        kind, codec, rest = stream.groups()
+        if kind == "Video" and video is None:
+            # The line also holds a hex codec tag (0x31637661) — the real
+            # resolution is the last WxH-looking match.
+            sizes = re.findall(r"(\d{2,5})x(\d{2,5})", rest)
+            fps_match = re.search(r"([\d.]+)\s*fps", rest) or re.search(r"(\d+)\s*tbr", rest)
+            width, height = (int(sizes[-1][0]), int(sizes[-1][1])) if sizes else (0, 0)
+            video = {
+                "codec": codec,
+                "width": width,
+                "height": height,
+                "fps": round(float(fps_match.group(1)), 3) if fps_match else 0,
+            }
+        elif kind == "Audio":
+            audio_count += 1
+            audio_codec = audio_codec or codec
     if not video:
         raise VideoToolError("В файле не найдена видеодорожка.")
-    fps_value = video.get("avg_frame_rate", "0/1")
-    numerator, denominator = fps_value.split("/")
-    fps = float(numerator) / float(denominator) if float(denominator) else 0
     return {
-        "duration": float(raw.get("format", {}).get("duration", 0)),
-        "width": int(video.get("width", 0)),
-        "height": int(video.get("height", 0)),
-        "fps": round(fps, 3),
-        "codec": video.get("codec_name"),
-        "audio_streams": len(audio),
-        "audio_codec": audio[0].get("codec_name") if audio else None,
+        "duration": duration,
+        "width": video["width"],
+        "height": video["height"],
+        "fps": video["fps"],
+        "codec": video["codec"],
+        "audio_streams": audio_count,
+        "audio_codec": audio_codec,
     }
+
+
+def probe(path: Path) -> dict:
+    if available("ffprobe"):
+        command = ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)]
+        result = subprocess.run(command, capture_output=True, text=True, check=False)
+        if result.returncode:
+            raise VideoToolError("Не удалось прочитать видео. Проверьте, что файл не повреждён.")
+        raw = json.loads(result.stdout)
+        streams = raw.get("streams", [])
+        video = next((s for s in streams if s.get("codec_type") == "video"), None)
+        audio = [s for s in streams if s.get("codec_type") == "audio"]
+        if not video:
+            raise VideoToolError("В файле не найдена видеодорожка.")
+        fps_value = video.get("avg_frame_rate", "0/1")
+        numerator, denominator = fps_value.split("/")
+        fps = float(numerator) / float(denominator) if float(denominator) else 0
+        return {
+            "duration": float(raw.get("format", {}).get("duration", 0)),
+            "width": int(video.get("width", 0)),
+            "height": int(video.get("height", 0)),
+            "fps": round(fps, 3),
+            "codec": video.get("codec_name"),
+            "audio_streams": len(audio),
+            "audio_codec": audio[0].get("codec_name") if audio else None,
+        }
+    binary = _ffmpeg_binary()
+    if not binary:
+        raise VideoToolError("FFmpeg не найден. Переустановите KLIPANI с официального релиза.")
+    result = subprocess.run([binary, "-i", str(path)], capture_output=True, text=True, check=False)
+    try:
+        return _parse_ffmpeg_info(result.stderr or "")
+    except VideoToolError:
+        raise
+    except Exception as error:  # noqa: BLE001 — unparseable output, not a broken file
+        logger.warning("ffmpeg probe parse failed: %s", error)
+        raise VideoToolError("Не удалось прочитать видео. Проверьте, что файл не повреждён.") from error
 
 
 def _blur_base() -> str:

@@ -247,9 +247,11 @@ def required_video(video_id: str) -> dict:
 
 @app.get("/api/health")
 def health() -> dict:
+    from .utils.ffmpeg import bundled_exe
+
     return {
         "status": "ok",
-        "ffmpeg": available("ffmpeg"),
+        "ffmpeg": bool(bundled_exe() or available("ffmpeg")),
         "ffprobe": available("ffprobe"),
         "whisper": whisper_installed(),
         "whisper_ready": whisper_model_ready(),
