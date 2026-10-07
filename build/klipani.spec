@@ -52,7 +52,6 @@ exe = EXE(
     upx=False,
     console=False,  # GUI release: logs go to backend.log via the Electron shell
 )
-)
 coll = COLLECT(
     exe,
     a.binaries,
