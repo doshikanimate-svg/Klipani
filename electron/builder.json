@@ -27,10 +27,13 @@
     "target": ["dmg", "zip"]
   },
   "win": {
+    "icon": "electron/icon.ico",
     "target": ["nsis"]
   },
   "nsis": {
     "oneClick": false,
-    "allowToChangeInstallationDirectory": true
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "electron/icon.ico",
+    "uninstallerIcon": "electron/icon.ico"
   }
 }
