@@ -51,6 +51,20 @@ def test_model_endpoints_are_public_first_run(client, monkeypatch) -> None:
     assert state["size_mb"] > 0
 
 
+def test_llm_endpoints_are_public_and_need_daemon(client, monkeypatch) -> None:
+    """Qwen setup is also key-free; pull refuses cleanly without the daemon."""
+    from app.providers.llm import ollama as oll
+
+    assert client.get("/api/llm").status_code == 200
+    monkeypatch.setattr(oll, "daemon_running", lambda: False)
+    refused = client.post("/api/llm/pull")
+    assert refused.status_code == 409
+    assert "ollama.com" in refused.json()["detail"]
+    monkeypatch.setattr(oll, "daemon_running", lambda: True)
+    monkeypatch.setattr(oll, "ollama_available", lambda: True)
+    assert client.get("/api/llm").json()["ready"] is True
+
+
 def test_trial_and_paid_plans_unlock_and_report_free_flag(client) -> None:
     trial = issue_license(42, "trial")["key"]
     assert client.post("/api/license", json={"key": trial}).status_code == 200

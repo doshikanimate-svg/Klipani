@@ -39,6 +39,31 @@ async def lifespan(app: FastAPI):
     from .services.dapayments import start_poller
 
     start_poller()
+    # A previous run may have died mid-download: its in-memory lock is gone,
+    # so a stale "downloading" flag would block all retries forever.
+    try:
+        from .db import database as _db
+
+        with _db() as _conn:
+            for _key in ("model_download", "llm_pull"):
+                _row = _conn.execute(
+                    "SELECT value FROM app_settings WHERE key=?", (_key,)
+                ).fetchone()
+                if _row:
+                    import json as _json
+
+                    try:
+                        _state = _json.loads(_row["value"])
+                    except (ValueError, TypeError):
+                        continue
+                    if isinstance(_state, dict) and _state.get("active"):
+                        _state["active"] = False
+                        _conn.execute(
+                            "INSERT OR REPLACE INTO app_settings VALUES (?, ?)",
+                            (_key, _json.dumps(_state)),
+                        )
+    except Exception:  # noqa: BLE001 — never fail startup over a flag
+        pass
     # Webhook setup does network I/O (Telegram API) — must not block startup,
     # or the hoster kills the process on port-scan timeout.
     webhook_task = asyncio.create_task(_start_telegram_webhook())
@@ -111,7 +136,7 @@ async def license_gate(request: Request, call_next):
         return await call_next(request)
     method, path = request.method, request.url.path
     # Bot/payment endpoints run server-side on the host and have no local key.
-    public = path.startswith(("/api/health", "/api/license", "/api/bot", "/api/payments", "/api/model"))
+    public = path.startswith(("/api/health", "/api/license", "/api/bot", "/api/payments", "/api/model", "/api/llm"))
     # Cancelling must always work, even if the key expires mid-render.
     if public or method not in ("POST", "PUT", "PATCH", "DELETE") or path.endswith("/cancel"):
         return await call_next(request)
@@ -287,6 +312,45 @@ def model_download() -> dict:
 
     threading.Thread(target=_run, daemon=True).start()
     return model_download_state()
+
+
+_llm_pull_lock = threading.Lock()
+
+
+@app.get("/api/llm")
+def llm_status() -> dict:
+    from .providers.llm.ollama import llm_state
+
+    return llm_state()
+
+
+@app.post("/api/llm/pull")
+def llm_pull() -> dict:
+    """First run: `ollama pull` the Qwen model in the background, poll /api/llm."""
+    from .providers.llm.ollama import llm_state, pull_model
+
+    if not _llm_pull_lock.acquire(blocking=False):
+        return llm_state()
+    state = llm_state()
+    if state["ready"] or state["pulling"]:
+        _llm_pull_lock.release()
+        return state
+    if not state["daemon"]:
+        _llm_pull_lock.release()
+        raise HTTPException(409, "Ollama не запущена. Установите её с https://ollama.com/download и запустите.")
+
+    def _run() -> None:
+        try:
+            pull_model()
+        except Exception:  # noqa: BLE001 — state is stored for the UI to read
+            pass
+        finally:
+            _llm_pull_lock.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+    started = llm_state()
+    started["pulling"] = True  # worker sets it too; this covers the first poll
+    return started
 
 
 @app.delete("/api/videos/{video_id}")

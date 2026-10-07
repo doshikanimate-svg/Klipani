@@ -132,3 +132,91 @@ def ollama_available() -> bool:
         return any(model.get("name") == settings.llm_model for model in models)
     except (URLError, TimeoutError, json.JSONDecodeError):
         return False
+
+
+def daemon_running() -> bool:
+    """Is the Ollama app/service up (regardless of which models it has)?"""
+    settings = get_settings()
+    try:
+        with urlopen(f"{settings.ollama_url.rstrip('/')}/api/tags", timeout=2) as response:
+            json.loads(response.read().decode())
+        return True
+    except (URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return False
+
+
+def llm_state() -> dict:
+    """First-run screen data for the Qwen model: daemon? model? pulling?"""
+    from ...db import database
+
+    settings = get_settings()
+    daemon = daemon_running()
+    ready = ollama_available() if daemon else False
+    pulling: dict = {"active": False}
+    try:
+        with database() as db:
+            row = db.execute("SELECT value FROM app_settings WHERE key='llm_pull'").fetchone()
+        if row:
+            pulling = json.loads(row["value"])
+    except (ValueError, TypeError):
+        pulling = {"active": False}
+    return {
+        "provider": "ollama",
+        "model": settings.llm_model,
+        "daemon": daemon,
+        "ready": ready,
+        "pulling": bool(pulling.get("active")),
+        "percent": pulling.get("percent"),
+        "install_url": "https://ollama.com/download",
+    }
+
+
+def _set_pull_state(state: dict) -> None:
+    from ...db import database
+
+    with database() as db:
+        db.execute(
+            "INSERT OR REPLACE INTO app_settings VALUES (?, ?)",
+            ("llm_pull", json.dumps(state)),
+        )
+
+
+def pull_model() -> dict:
+    """`ollama pull <model>` in the caller's thread; progress via llm_state().
+
+    Raises RuntimeError with a human message when the daemon is down or
+    the pull fails — the endpoint runs this in a background thread.
+    """
+    settings = get_settings()
+    if not daemon_running():
+        raise RuntimeError(
+            "Ollama не запущена. Установите её с https://ollama.com/download, "
+            "запустите — и нажмите «Скачать» ещё раз."
+        )
+    _set_pull_state({"active": True, "model": settings.llm_model, "percent": 0})
+    try:
+        body = json.dumps({"model": settings.llm_model, "stream": True}).encode()
+        request = Request(
+            f"{settings.ollama_url.rstrip('/')}/api/pull",
+            data=body, headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urlopen(request, timeout=3600) as response:
+            for line in response:
+                try:
+                    event = json.loads(line.decode())
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                total = event.get("total") or 0
+                done = event.get("completed") or 0
+                if total > 0:
+                    _set_pull_state({
+                        "active": True, "model": settings.llm_model,
+                        "percent": max(1, min(99, round(done / total * 100))),
+                    })
+                if event.get("status") == "success":
+                    break
+    except Exception as error:  # noqa: BLE001 — clean message for the UI
+        _set_pull_state({"active": False, "error": str(error)[:200], "model": settings.llm_model})
+        raise RuntimeError(f"Не удалось скачать модель ({error}). Проверьте интернет и перезапустите Ollama.") from error
+    _set_pull_state({"active": False, "done": True, "model": settings.llm_model})
+    return llm_state()

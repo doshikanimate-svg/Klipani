@@ -81,6 +81,8 @@ export default function Home() {
   const [health, setHealth] = useState<Health | undefined>();
   const [model, setModel] = useState<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number } | undefined>();
   const [modelBusy, setModelBusy] = useState(false);
+  const [llm, setLlm] = useState<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string } | undefined>();
+  const [llmBusy, setLlmBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | undefined>();
@@ -95,6 +97,7 @@ export default function Home() {
     api.appSettings().then(setWm).catch(() => undefined);
     api.licenseStatus().then(setLicense).catch(() => undefined);
     api.modelState().then(setModel).catch(() => undefined);
+    api.llmState().then(setLlm).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -123,6 +126,35 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Не удалось скачать модель.");
     } finally {
       setModelBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!llm || llm.ready || !llm.pulling) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const updated = await api.llmState();
+        setLlm(updated);
+        if (updated.ready) {
+          api.health().then(setHealth).catch(() => undefined);
+          window.clearInterval(timer);
+        }
+      } catch {
+        window.clearInterval(timer);
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [llm?.pulling]);
+
+  const startLlmPull = async () => {
+    try {
+      setLlmBusy(true);
+      setError(undefined);
+      setLlm(await api.llmPull());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось скачать модель.");
+    } finally {
+      setLlmBusy(false);
     }
   };
 
@@ -579,6 +611,44 @@ export default function Home() {
               >
                 Скачать модель (~{model.size_mb} МБ)
               </button>
+            )}
+          </div>
+        )}
+
+        {llm && !llm.ready && (
+          <div className="mt-5 rounded-2xl border border-brand-pink/30 bg-brand-pink/5 p-5">
+            <p className="text-sm font-bold text-brand-pink">🧠 Умный поиск моментов: модель {llm.model} (Qwen через Ollama)</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Без неё моменты ищутся упрощённым способом. Модель докачивается один раз и работает локально.
+            </p>
+            {llm.pulling || llmBusy ? (
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-xs text-zinc-400">
+                  <span>Скачивание…</span>
+                  <span className="font-mono">{llm.percent !== undefined ? `${llm.percent}%` : "…"}</span>
+                </div>
+                <div className="progress-shimmer h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-brand-pink to-brand-cyan transition-all"
+                    style={{ width: `${llm.percent ?? 5}%` }}
+                  />
+                </div>
+              </div>
+            ) : llm.daemon ? (
+              <button
+                onClick={startLlmPull}
+                className="btn-glow mt-3 rounded-xl bg-brand-pink px-5 py-2.5 text-sm font-bold text-black hover:brightness-110"
+              >
+                Скачать модель Qwen
+              </button>
+            ) : (
+              <p className="mt-3 text-xs text-zinc-400">
+                Сначала установите и запустите{" "}
+                <a href={llm.install_url} target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                  Ollama
+                </a>{" "}
+                — затем вернитесь сюда и нажмите «Скачать модель Qwen».
+              </p>
             )}
           </div>
         )}

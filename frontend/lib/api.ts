@@ -145,6 +145,15 @@ export const api = {
       "/api/model/download",
       { method: "POST" },
     ),
+  llmState: () =>
+    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string }>(
+      "/api/llm",
+    ),
+  llmPull: () =>
+    request<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string }>(
+      "/api/llm/pull",
+      { method: "POST" },
+    ),
   licenseActivate: (key: string) =>
     request<{ active: boolean; plan: string; exp: number }>(`/api/license`, {
       method: "POST",
