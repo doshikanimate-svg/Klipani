@@ -234,6 +234,74 @@ def test_job_payload_includes_eta() -> None:
     assert _job_payload(done)["eta_seconds"] is None
 
 
+def test_trial_key_expires_three_days_after_issue(monkeypatch) -> None:
+    """Free code stops working 3 days after receipt: verify() rejects it."""
+    import base64
+    import hashlib
+    import hmac
+    import json
+
+    import app.services.license_service as lic
+
+    monkeypatch.setenv("LICENSE_SECRET", "test-secret-exp")
+    lic.get_settings.cache_clear()
+    try:
+        expired_payload = json.dumps(
+            {"tg": 99, "plan": "trial", "exp": 1_000_000}, separators=(",", ":")
+        ).encode()
+        sig = hmac.new(b"test-secret-exp", expired_payload, hashlib.sha256).digest()
+        blob = (
+            base64.urlsafe_b64encode(expired_payload).rstrip(b"=").decode()
+            + "."
+            + base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
+        )
+        assert lic.verify_license(f"KLIP-{blob}") is None
+
+        fresh = lic.issue_license(99, "trial")
+        assert lic.verify_license(fresh["key"]) is not None
+        assert fresh["exp"] - __import__("time").time() <= 3 * 86400 + 5
+    finally:
+        lic.get_settings.cache_clear()
+
+
+def test_trial_claim_survives_paid_plan_override(monkeypatch, tmp_path) -> None:
+    """trial -> month -> trial again must stay refused (the reported hole)."""
+    import sqlite3
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bot"))
+    import main as bot
+
+    monkeypatch.setattr(bot, "DB_PATH", tmp_path / "trial-test.db")
+    assert bot.claim_trial(777) is True  # first claim
+    assert bot.trial_used(777) is True
+    assert bot.claim_trial(777) is False  # second claim refused
+
+    # User buys the paid plan: subscribers row is overwritten...
+    bot.save_subscriber(777, "month", "KLIP-x", 9_999_999_999)
+    # ...but the trial claim must persist.
+    assert bot.trial_used(777) is True
+    assert bot.claim_trial(777) is False
+
+    # Legacy DBs (trial row, no claims table yet) are backfilled on open.
+    legacy = tmp_path / "legacy.db"
+    connection = sqlite3.connect(legacy)
+    connection.execute(
+        "CREATE TABLE subscribers (tg_id INTEGER PRIMARY KEY, plan TEXT NOT NULL,"
+        " license_key TEXT NOT NULL, exp INTEGER NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO subscribers VALUES (555, 'trial', 'KLIP-old', 1_000_000)"
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(bot, "DB_PATH", legacy)
+    assert bot.trial_used(555) is True
+    bot.save_subscriber(555, "month", "KLIP-y", 9_999_999_999)
+    assert bot.trial_used(555) is True
+
+
 def test_format_duration_is_human() -> None:
     assert "сек" in format_duration(42)
     assert "мин" in format_duration(240)

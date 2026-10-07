@@ -51,25 +51,13 @@ def test_error_handler_swallows_not_modified():
 
 
 def test_trial_once_per_account(monkeypatch, tmp_path) -> None:
-    import sqlite3
     import main as bot_main
 
-    db_path = tmp_path / "bot.db"
-    connection = sqlite3.connect(db_path)
-    connection.execute(
-        "CREATE TABLE subscribers (tg_id INTEGER PRIMARY KEY, plan TEXT, license_key TEXT, exp INTEGER)"
-    )
-    connection.commit()
-
-    class _Ctx:
-        def __enter__(self):
-            return sqlite3.connect(db_path)
-
-        def __exit__(self, *args):
-            return False
-
-    monkeypatch.setattr(bot_main, "_db", lambda: _Ctx())
+    monkeypatch.setattr(bot_main, "DB_PATH", tmp_path / "bot.db")
     assert bot_main.trial_used(111) is False
+    assert bot_main.claim_trial(111) is True
+    assert bot_main.trial_used(111) is True
+    assert bot_main.claim_trial(111) is False
     bot_main.save_subscriber(111, "trial", "KLIP-x", 9999999999)
     assert bot_main.trial_used(111) is True
     assert bot_main.trial_used(222) is False

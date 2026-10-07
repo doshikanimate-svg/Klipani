@@ -44,6 +44,18 @@ def _db() -> sqlite3.Connection:
              license_key TEXT NOT NULL, exp INTEGER NOT NULL
            )"""
     )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS trial_claims (
+             tg_id INTEGER PRIMARY KEY, claimed_at INTEGER NOT NULL
+           )"""
+    )
+    # Backfill: trials issued before this table existed still count —
+    # buying a paid plan later must not reopen the free trial.
+    connection.execute(
+        """INSERT OR IGNORE INTO trial_claims(tg_id, claimed_at)
+           SELECT tg_id, exp FROM subscribers WHERE plan='trial'"""
+    )
+    connection.commit()
     return connection
 
 
@@ -86,12 +98,29 @@ def _ensure_extra_columns(connection) -> None:
 
 
 def trial_used(tg_id: int) -> bool:
-    """Trial is once per Telegram account: any past trial row counts, even expired."""
+    """Trial is once per Telegram account, forever.
+
+    The claim lives in its own table so buying a paid plan afterwards
+    (which overwrites the subscribers row) can never reopen the free trial.
+    """
     with _db() as db:
         row = db.execute(
-            "SELECT 1 FROM subscribers WHERE tg_id=? AND plan='trial'", (int(tg_id),)
+            "SELECT 1 FROM trial_claims WHERE tg_id=?", (int(tg_id),)
         ).fetchone()
         return row is not None
+
+
+def claim_trial(tg_id: int) -> bool:
+    """Atomically record the free-trial claim. True = first time, False = already used."""
+    import time as _time
+
+    with _db() as db:
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO trial_claims(tg_id, claimed_at) VALUES (?, ?)",
+            (int(tg_id), int(_time.time())),
+        )
+        db.commit()
+        return cursor.rowcount == 1
 
 
 def save_subscriber(tg_id: int, plan: str, key: str, exp: int) -> None:
@@ -285,6 +314,20 @@ def methods_keyboard(plan_id: str) -> InlineKeyboardMarkup:
     ])
 
 
+async def _refuse_trial_payment(callback: CallbackQuery, plan_id: str) -> bool:
+    """Trial is free and claimed with one button — never through a payment flow.
+
+    Returns True when the plan is the trial (caller must stop right after).
+    """
+    if plan_id != "trial":
+        return False
+    await callback.answer(
+        "Пробный тариф бесплатный: вернитесь в «Тарифы» и нажмите его кнопку — ключ выдастся сразу.",
+        show_alert=True,
+    )
+    return True
+
+
 def paid_keyboard(code: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"paid:{code}")],
@@ -299,7 +342,7 @@ async def on_plan(callback: CallbackQuery) -> None:
         await callback.answer("Неизвестный тариф.", show_alert=True)
         return
     if plan_id == "trial":
-        if trial_used(callback.from_user.id):
+        if not claim_trial(callback.from_user.id):
             await _safe_edit(
                 callback,
                 "😕 Пробная подписка выдаётся <b>1 раз на аккаунт</b>, и вы её уже использовали.\n\n"
@@ -387,6 +430,8 @@ async def on_method(callback: CallbackQuery) -> None:
     info = PLANS.get(plan_id)
     if not info:
         await callback.answer("Неизвестный тариф.", show_alert=True)
+        return
+    if await _refuse_trial_payment(callback, plan_id):
         return
     settings = get_settings()
     if method == "da":
@@ -500,6 +545,10 @@ async def on_admin_decision(callback: CallbackQuery) -> None:
         await callback.answer("Заявка уже обработана.", show_alert=True)
         return
     if decision == "ok":
+        if pending["plan"] == "trial" and not claim_trial(pending["tg_id"]):
+            _pending_delete(code)
+            await callback.answer("У этого аккаунта триал уже был — ключ не выдан.", show_alert=True)
+            return
         try:
             issued = issue_license(pending["tg_id"], pending["plan"])
         except (ValueError, RuntimeError) as error:
@@ -535,6 +584,8 @@ async def on_pay(callback: CallbackQuery) -> None:
 
     plan_id = callback.data.split(":", 1)[1]
     info = PLANS[plan_id]
+    if await _refuse_trial_payment(callback, plan_id):
+        return
     settings = get_settings()
     if da.is_configured() and settings.da_donate_url:
         code = da.create_payment_code(callback.from_user.id, plan_id)
@@ -563,6 +614,8 @@ async def on_pay(callback: CallbackQuery) -> None:
 
 async def on_confirm(callback: CallbackQuery) -> None:
     plan_id = callback.data.split(":", 1)[1]
+    if await _refuse_trial_payment(callback, plan_id):
+        return
     try:
         issued = issue_license(callback.from_user.id, plan_id)
     except (ValueError, RuntimeError) as error:

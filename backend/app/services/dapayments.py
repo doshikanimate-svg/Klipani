@@ -258,6 +258,19 @@ def process_donations(donations: list) -> int:
             if not pending:
                 continue
             tg_id, plan = pending
+            if plan == "trial":
+                # Trial is free and once-per-account: it is claimed with one button
+                # in «Тарифы», never through a donation (its price is 0, so any
+                # donation text with the code would otherwise auto-issue it).
+                logger.info("donation %s ignored: trial plan is not payable", donation_id)
+                connection.execute("DELETE FROM pending_payments WHERE code=?", (code,))
+                connection.commit()
+                _notify_telegram(
+                    tg_id,
+                    "😕 Пробный тариф бесплатный и выдаётся <b>1 раз на аккаунт</b> — "
+                    "берите его кнопкой в «Тарифах», платить ничего не нужно.",
+                )
+                continue
             try:
                 amount = float(donation.get("amount", 0) or 0)
             except (TypeError, ValueError):
