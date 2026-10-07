@@ -15,6 +15,9 @@
     "electron/icon.icns",
     "frontend/.next/standalone/**/*"
   ],
+  "asarUnpack": [
+    "frontend/.next/standalone/**/*"
+  ],
   "extraResources": [
     {
       "from": "build/dist/klipani-backend",

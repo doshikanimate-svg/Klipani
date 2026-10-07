@@ -73,12 +73,38 @@ function logFile(name) {
   }
 }
 
-function pipeToFile(child, file) {
-  if (!file || !child.stdout) return;
-  const stream = fs.createWriteStream(file, { flags: "a" });
-  stream.write(`\n===== ${new Date().toISOString()} started =====\n`);
-  child.stdout.on("data", (d) => stream.write(d));
-  if (child.stderr) child.stderr.on("data", (d) => stream.write(d));
+function pipeToFile(child, file, tag) {
+  const lines = [];
+  const flush = () => {
+    if (!file) return;
+    try {
+      fs.appendFileSync(file, lines.join("") + `\n===== ${tag} ended =====\n`);
+    } catch {
+      /* best effort */
+    }
+    lines.length = 0;
+  };
+  const note = (text) => {
+    const line = `[main] ${text}\n`;
+    lines.push(line);
+    console.log(`[klipani] ${text}`);
+  };
+  if (file) {
+    try {
+      fs.appendFileSync(file, `\n===== ${new Date().toISOString()} ${tag} =====\n`);
+    } catch {
+      /* best effort */
+    }
+  }
+  if (child.stdout) child.stdout.on("data", (d) => lines.push(d.toString()));
+  if (child.stderr) child.stderr.on("data", (d) => lines.push(d.toString()));
+  child.on("error", (error) => note(`process error: ${error.message}`));
+  child.on("exit", (code, signal) => {
+    note(`process exit: code=${code} signal=${signal}`);
+    flush();
+  });
+  child.on("spawn", () => note("process spawned"));
+  return { note, flush };
 }
 
 function spawnBackend() {
@@ -87,45 +113,68 @@ function spawnBackend() {
     console.log("[klipani] no bundled backend found, expecting dev backend on :8000");
     return null;
   }
+  // stdio:pipe (not inherit) so the app never flashes a console window —
+  // output goes to backend.log instead.
   const child = spawn(exe, [], {
     env: { ...process.env, KLIPANI_DATA: dataDir() },
-    stdio: "inherit",
+    stdio: "pipe",
+    windowsHide: true,
   });
+  pipeToFile(child, logFile("backend.log"), "backend");
   children.push(child);
-  child.on("exit", (code) => {
-    console.log(`[klipani] backend exited with code ${code}`);
-  });
   return child;
 }
 
-function frontendDir() {
-  // Packaged files live INSIDE app.asar (builder.json `files`), not next to it.
-  // app.getAppPath() already resolves to .../resources/app.asar when packaged.
-  if (isPackaged()) return path.join(app.getAppPath(), "frontend", ".next", "standalone");
-  return path.join(__dirname, "..", "frontend", ".next", "standalone");
+function frontendCandidates() {
+  if (!isPackaged()) return [path.join(__dirname, "..", "frontend", ".next", "standalone")];
+  const asarBase = app.getAppPath(); // .../resources/app.asar when packaged
+  return [
+    // Real files (builder.json asarUnpack) — preferred, no asar quirks.
+    path.join(path.dirname(asarBase), "app.asar.unpacked", "frontend", ".next", "standalone"),
+    // Inside the archive — utilityProcess reads asar fine.
+    path.join(asarBase, "frontend", ".next", "standalone"),
+  ];
 }
 
 function spawnFrontend() {
   if (!isPackaged()) return null; // `npm run dev` serves it
-  const dir = frontendDir();
-  const server = path.join(dir, "server.js");
-  if (!fs.existsSync(server)) {
-    console.log("[klipani] standalone frontend not found:", server);
+  const log = logFile("frontend.log");
+  const say = (text) => {
+    try {
+      if (log) fs.appendFileSync(log, `[main] ${text}\n`);
+    } catch {
+      /* best effort */
+    }
+    console.log(`[klipani] ${text}`);
+  };
+  let dir = null;
+  for (const candidate of frontendCandidates()) {
+    const found = fs.existsSync(path.join(candidate, "server.js"));
+    say(`candidate ${candidate} -> server.js ${found ? "FOUND" : "missing"}`);
+    if (found && !dir) dir = candidate;
+  }
+  if (!dir) {
+    say("server.js not found anywhere, aborting frontend start");
     return null;
   }
+  const server = path.join(dir, "server.js");
+  say(`spawning ${server} (cwd=${dir})`);
   // NOTE: never spawn process.execPath (Electron) with server.js — Electron
   // would load it as an app instead of running Node. utilityProcess runs it
   // as plain Node with asar support, on every platform.
   const { utilityProcess } = require("electron");
-  const child = utilityProcess.fork(server, [], {
-    cwd: dir,
-    env: { ...process.env, PORT: String(FRONTEND_PORT), HOSTNAME: "127.0.0.1", HOST: "127.0.0.1" },
-    stdio: "pipe",
-  });
-  pipeToFile(child, logFile("frontend.log"));
-  child.on("exit", (code) => {
-    console.log(`[klipani] frontend exited with code ${code}, see frontend.log`);
-  });
+  let child;
+  try {
+    child = utilityProcess.fork(server, [], {
+      cwd: dir,
+      env: { ...process.env, PORT: String(FRONTEND_PORT), HOSTNAME: "127.0.0.1", HOST: "127.0.0.1" },
+      stdio: "pipe",
+    });
+  } catch (error) {
+    say(`fork threw: ${error.message}`);
+    return null;
+  }
+  pipeToFile(child, log, "frontend");
   children.push(child);
   return child;
 }

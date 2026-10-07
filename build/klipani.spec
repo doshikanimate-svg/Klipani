@@ -50,7 +50,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,  # GUI release: logs go to backend.log via the Electron shell
+)
 )
 coll = COLLECT(
     exe,
