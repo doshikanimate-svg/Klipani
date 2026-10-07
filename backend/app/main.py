@@ -64,6 +64,18 @@ async def lifespan(app: FastAPI):
                         )
     except Exception:  # noqa: BLE001 — never fail startup over a flag
         pass
+    # Warm up the local LLM in the background: if the Ollama binary is on disk
+    # but the daemon is down (e.g. after a reboot), start it so the user never
+    # has to think about it.
+    def _warm_llm() -> None:
+        try:
+            from .providers.llm.ollama import ensure_daemon
+
+            ensure_daemon(wait_seconds=25.0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    threading.Thread(target=_warm_llm, daemon=True).start()
     # Webhook setup does network I/O (Telegram API) — must not block startup,
     # or the hoster kills the process on port-scan timeout.
     webhook_task = asyncio.create_task(_start_telegram_webhook())
@@ -71,6 +83,13 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         webhook_task.cancel()
+        # Stop the Ollama daemon only when this backend started it.
+        try:
+            from .providers.llm.ollama import stop_spawned_daemon
+
+            stop_spawned_daemon()
+        except Exception:  # noqa: BLE001
+            pass
         # NOTE: do NOT delete_webhook() here. If the next process fails to
         # re-register (missing env, crash), Telegram would have nowhere to
         # deliver updates and the bot goes silently dead. Re-setting the same
@@ -335,9 +354,11 @@ def llm_pull() -> dict:
     if state["ready"] or state["pulling"]:
         _llm_pull_lock.release()
         return state
-    if not state["daemon"]:
+    from .providers.llm.ollama import ensure_daemon
+
+    if not ensure_daemon():
         _llm_pull_lock.release()
-        raise HTTPException(409, "Ollama не запущена. Установите её с https://ollama.com/download и запустите.")
+        raise HTTPException(409, "Ollama не найдена. Установите её с https://ollama.com/download — дальше всё само.")
 
     def _run() -> None:
         try:

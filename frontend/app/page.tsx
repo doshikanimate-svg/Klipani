@@ -446,6 +446,12 @@ export default function Home() {
       await api.sendTelegram(clip.id);
       setTgSent((prev) => ({ ...prev, [clip.id]: true }));
     } catch (e) {
+      // 409 = Telegram не привязан: ведём в профиль, где инструкция и поле Chat ID.
+      if (e instanceof ApiError && e.status === 409) {
+        setError("Сначала привяжите Telegram в профиле — нужен Chat ID (его выдаёт команда /myid в боте).");
+        setProfileOpen(true);
+        return;
+      }
       handleError(e, "Не удалось отправить в Telegram.");
     } finally {
       setTgBusy(undefined);
@@ -466,7 +472,8 @@ export default function Home() {
   const connectProvider = async () => {
     try {
       const { url } = pubProvider === "youtube" ? await api.ytAuthUrl() : await api.ttAuthUrl();
-      window.open(url, "_blank");
+      const win = window.open(url, "_blank");
+      if (!win) setError("Браузер заблокировал всплывающее окно — разрешите всплывающие окна и нажмите ещё раз.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось начать авторизацию.");
     }
@@ -643,11 +650,11 @@ export default function Home() {
               </button>
             ) : (
               <p className="mt-3 text-xs text-zinc-400">
-                Сначала установите и запустите{" "}
+                Установите{" "}
                 <a href={llm.install_url} target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
                   Ollama
                 </a>{" "}
-                — затем вернитесь сюда и нажмите «Скачать модель Qwen».
+                (один раз) — дальше приложение само запустит её в фоне и скачает модель Qwen.
               </p>
             )}
           </div>
@@ -988,7 +995,7 @@ export default function Home() {
               <div className="text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-zinc-300">
-                    ✈️ Telegram{" "}
+                    ТГ · Telegram{" "}
                     <span className={wm.tg_chat_id ? "text-brand-cyan" : "text-zinc-600"}>
                       {wm.tg_chat_id ? `· ${wm.tg_chat_id}` : "· не привязан"}
                     </span>
@@ -999,7 +1006,7 @@ export default function Home() {
                   <a href="https://t.me/Klipani_bot" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
                     @Klipani_bot
                   </a>{" "}
-                  и впишите сюда — кнопка ✈️ на клипе отправит видео одной кнопкой.
+                  и впишите сюда — кнопка ТГ на клипе отправит видео одной кнопкой.
                 </p>
                 <div className="mt-2 flex gap-2">
                   <input
@@ -1151,38 +1158,50 @@ export default function Home() {
                         <button
                           onClick={() => sendToTelegram(c)}
                           disabled={tgBusy === c.id}
-                          title="Отправить MP4 в Telegram-бота — забрать с телефона"
-                          className="icon-btn flex aspect-square items-center justify-center rounded-lg bg-zinc-900 px-3 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                          title="Отправить MP4 в свой Telegram — забрать с телефона"
+                          className="icon-btn flex aspect-square items-center justify-center rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-extrabold tracking-wide text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
                         >
-                          {tgBusy === c.id ? (
-                            "…"
-                          ) : tgSent[c.id] ? (
-                            "✓"
-                          ) : (
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                              <path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z" />
-                            </svg>
-                          )}
+                          {tgBusy === c.id ? "…" : tgSent[c.id] ? "✓" : "ТГ"}
                         </button>
                       </div>
                       {(() => {
                         const st = pubProvider === "youtube" ? yt : tt;
-                        const needKeys =
-                          pubProvider === "youtube"
-                            ? "Нужен OAuth-ключ: положите client_secrets в storage/yt_client.json (см. README)."
-                            : "Нужны ключи: создайте приложение на developers.tiktok.com и задайте TIKTOK_CLIENT_KEY/SECRET в .env.";
+                        const isYt = pubProvider === "youtube";
+                        const missingKeys = st && !st.configured;
                         if (!st?.connected) {
                           return (
                             <div className="text-sm">
-                              <p className="text-zinc-400">
-                                {st && !st.configured ? needKeys : `Подключите ${pubProvider === "youtube" ? "YouTube" : "TikTok"}-аккаунт для публикации.`}
-                              </p>
+                              {missingKeys && isYt ? (
+                                <div className="rounded-lg border border-zinc-800 bg-black/40 p-3">
+                                  <p className="font-bold text-zinc-200">Подключение YouTube — 5 шагов (один раз):</p>
+                                  <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-xs text-zinc-400">
+                                    <li>
+                                      Откройте{" "}
+                                      <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-brand-cyan hover:underline">
+                                        Google Cloud Console
+                                      </a>{" "}
+                                      и создайте проект (любое название).
+                                    </li>
+                                    <li>Включите для него <b>YouTube Data API v3</b> (раздел «API и сервисы» → «Библиотека»).</li>
+                                    <li>Создайте OAuth-клиент: «Учётные данные» → «Создать» → тип «Настольное приложение».</li>
+                                    <li>Скачайте JSON-ключ и положите его в папку данных приложения под именем <span className="font-mono">yt_client.json</span> (рядом с папками clips, uploads).</li>
+                                    <li>Перезапустите KLIPANI — кнопка ниже станет активной, нажмите её и разрешите доступ в Google.</li>
+                                  </ol>
+                                </div>
+                              ) : (
+                                <p className="text-zinc-400">
+                                  {missingKeys
+                                    ? "Нужны ключи: создайте приложение на developers.tiktok.com и задайте TIKTOK_CLIENT_KEY/SECRET в .env."
+                                    : `Подключите ${isYt ? "YouTube" : "TikTok"}-аккаунт для публикации.`}
+                                </p>
+                              )}
                               <button
                                 onClick={connectProvider}
-                                disabled={st && !st.configured}
+                                disabled={missingKeys}
+                                title={missingKeys ? "Сначала выполните шаги выше" : undefined}
                                 className="btn-glow-pink mt-2 w-full rounded-lg bg-brand-pink px-3 py-2 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
                               >
-                                Подключить {pubProvider === "youtube" ? "YouTube" : "TikTok"}
+                                Подключить {isYt ? "YouTube" : "TikTok"}
                               </button>
                               {pubProvider === "tiktok" && (
                                 <p className="mt-2 text-xs text-zinc-500">

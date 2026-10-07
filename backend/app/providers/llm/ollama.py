@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -145,6 +145,55 @@ def daemon_running() -> bool:
         return False
 
 
+_spawned: Optional[Any] = None
+
+
+def ensure_daemon(wait_seconds: float = 20.0) -> bool:
+    """Start `ollama serve` in the background when the binary exists but the
+    daemon is down. Returns True when the API answers. Never raises."""
+    global _spawned
+    if daemon_running():
+        return True
+    import shutil
+    import subprocess
+    import time as _time
+
+    if shutil.which("ollama") is None:
+        return False
+    try:
+        if _spawned is not None and _spawned.poll() is None:
+            pass  # already starting, just wait below
+        else:
+            _spawned = subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            logger.info("started ollama serve in background (pid=%s)", _spawned.pid)
+    except Exception as error:  # noqa: BLE001
+        logger.warning("could not start ollama serve: %s", error)
+        return False
+    deadline = _time.time() + wait_seconds
+    while _time.time() < deadline:
+        if daemon_running():
+            return True
+        _time.sleep(0.5)
+    return daemon_running()
+
+
+def stop_spawned_daemon() -> None:
+    """On backend shutdown, stop the daemon only if we started it ourselves."""
+    global _spawned
+    process, _spawned = _spawned, None
+    if process is None or process.poll() is not None:
+        return
+    try:
+        process.terminate()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def llm_state() -> dict:
     """First-run screen data for the Qwen model: daemon? model? pulling?"""
     from ...db import database
@@ -188,10 +237,10 @@ def pull_model() -> dict:
     the pull fails — the endpoint runs this in a background thread.
     """
     settings = get_settings()
-    if not daemon_running():
+    if not ensure_daemon():
         raise RuntimeError(
-            "Ollama не запущена. Установите её с https://ollama.com/download, "
-            "запустите — и нажмите «Скачать» ещё раз."
+            "Ollama не найдена. Установите её с https://ollama.com/download — "
+            "дальше приложение запустит её само."
         )
     _set_pull_state({"active": True, "model": settings.llm_model, "percent": 0})
     try:
