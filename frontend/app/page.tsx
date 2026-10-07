@@ -79,6 +79,8 @@ export default function Home() {
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [health, setHealth] = useState<Health | undefined>();
+  const [model, setModel] = useState<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number } | undefined>();
+  const [modelBusy, setModelBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<string | undefined>();
@@ -92,7 +94,37 @@ export default function Home() {
     api.storage().then(setStorage).catch(() => undefined);
     api.appSettings().then(setWm).catch(() => undefined);
     api.licenseStatus().then(setLicense).catch(() => undefined);
+    api.modelState().then(setModel).catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    if (!model || model.ready || !model.downloading) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const updated = await api.modelState();
+        setModel(updated);
+        if (updated.ready) {
+          api.health().then(setHealth).catch(() => undefined);
+          window.clearInterval(timer);
+        }
+      } catch {
+        window.clearInterval(timer);
+      }
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [model?.downloading]);
+
+  const startModelDownload = async () => {
+    try {
+      setModelBusy(true);
+      setError(undefined);
+      setModel(await api.modelDownload());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось скачать модель.");
+    } finally {
+      setModelBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (video) refreshClips(video.id);
@@ -520,6 +552,36 @@ export default function Home() {
         </div>
 
         {error && <p className="mt-5 rounded-xl border border-brand-pink/40 bg-brand-pink/10 p-3 text-sm text-red-200">{error}</p>}
+
+        {model && !model.ready && (
+          <div className="mt-5 rounded-2xl border border-brand-cyan/30 bg-brand-cyan/5 p-5">
+            <p className="text-sm font-bold text-brand-cyan">🎙️ Для распознавания речи нужна модель Whisper ({model.model}, ~{model.size_mb} МБ)</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Скачивается один раз с HuggingFace. Без неё анализ работает в упрощённом режиме.
+            </p>
+            {model.downloading || modelBusy ? (
+              <div className="mt-3">
+                <div className="mb-1 flex justify-between text-xs text-zinc-400">
+                  <span>Скачивание…</span>
+                  <span className="font-mono">{model.percent !== undefined ? `${model.percent}%` : "…"}</span>
+                </div>
+                <div className="progress-shimmer h-2 overflow-hidden rounded-full bg-zinc-800">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-brand-cyan to-brand-pink transition-all"
+                    style={{ width: `${model.percent ?? 5}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={startModelDownload}
+                className="btn-glow mt-3 rounded-xl bg-brand-cyan px-5 py-2.5 text-sm font-bold text-black hover:brightness-110"
+              >
+                Скачать модель (~{model.size_mb} МБ)
+              </button>
+            )}
+          </div>
+        )}
 
         {video && (
           <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-black/40 p-5 ring-1 ring-zinc-800">

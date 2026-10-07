@@ -38,12 +38,30 @@ jobs:
           npm run build
 
       - name: Desktop installer (electron-builder)
-        working-directory: frontend
         run: |
-          npm install -D electron electron-builder
-          npx electron-builder --config ../electron/builder.json --publish never
+          npm ci
+          npx electron-builder --config electron/builder.json --publish never
 
       - uses: actions/upload-artifact@v4
         with:
           name: klipani-${{ matrix.arch }}
-          path: frontend/release/
+          path: release/
+
+  release:
+    # Attaches both installers (+ updater metadata) to the GitHub Release
+    # so electron-updater can find them. Runs only on version tags.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          fail_on_unmatched_files: true

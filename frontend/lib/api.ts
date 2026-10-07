@@ -136,6 +136,15 @@ export const api = {
     request<{ active: boolean; plan?: string | null; exp?: number | null; free?: boolean; days_left?: number }>(
       "/api/license",
     ),
+  modelState: () =>
+    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number }>(
+      "/api/model",
+    ),
+  modelDownload: () =>
+    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number }>(
+      "/api/model/download",
+      { method: "POST" },
+    ),
   licenseActivate: (key: string) =>
     request<{ active: boolean; plan: string; exp: number }>(`/api/license`, {
       method: "POST",

@@ -3,10 +3,17 @@
 //            `npx electron electron/main.js` attaches to them.
 // Packaged:  spawns the bundled backend sidecar + Next.js standalone server.
 
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, dialog } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+let autoUpdater = null;
+try {
+  ({ autoUpdater } = require("electron-updater"));
+} catch {
+  /* dev checkout without the dep: updates simply stay off */
+}
 
 const BACKEND_PORT = 8000;
 const FRONTEND_PORT = 3000;
@@ -111,6 +118,7 @@ app.whenReady().then(() => {
   if (isPackaged()) {
     spawnBackend();
     spawnFrontend();
+    checkForUpdates();
   } else if (process.env.KLIPANI_SPAWN_BACKEND === "1") {
     spawnBackend();
   }
@@ -119,6 +127,47 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+function checkForUpdates() {
+  if (!autoUpdater) return;
+  autoUpdater.autoDownload = false;
+  autoUpdater.on("update-available", (info) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    const answer = dialog.showMessageBoxSync(win || undefined, {
+      type: "question",
+      buttons: ["Скачать", "Позже"],
+      defaultId: 0,
+      title: "Доступно обновление",
+      message: `Вышла версия ${info.version}. Скачать и установить при выходе?`,
+    });
+    if (answer === 0) autoUpdater.downloadUpdate();
+  });
+  autoUpdater.on("update-downloaded", () => {
+    const answer = dialog.showMessageBoxSync(BrowserWindow.getAllWindows()[0], {
+      type: "question",
+      buttons: ["Перезапустить", "Позже"],
+      defaultId: 0,
+      title: "Обновление готово",
+      message: "Новая версия скачана. Перезапустить KLIPANI для установки?",
+    });
+    if (answer === 0) {
+      for (const child of children) {
+        try {
+          child.kill();
+        } catch {
+          /* already dead */
+        }
+      }
+      autoUpdater.quitAndInstall();
+    }
+  });
+  autoUpdater.on("error", (error) => {
+    console.log("[klipani] updater:", error == null ? "unknown" : error.message || error);
+  });
+  autoUpdater.checkForUpdates().catch((error) => {
+    console.log("[klipani] update check failed:", error == null ? "unknown" : error.message || error);
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

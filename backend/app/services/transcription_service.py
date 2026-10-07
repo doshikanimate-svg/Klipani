@@ -36,6 +36,78 @@ def model_cached(name: Optional[str] = None) -> bool:
     return isinstance(path, str) and Path(path).exists()
 
 
+MODEL_SIZES_MB = {"tiny": 80, "base": 150, "small": 470, "medium": 1500}
+
+
+def model_download_state(name: Optional[str] = None) -> dict:
+    """First-run screen data: which model, how big, is it already here."""
+    resolved = _model_name() if name is None else (name if name in ALLOWED_MODELS else "base")
+    state = {
+        "model": resolved,
+        "size_mb": MODEL_SIZES_MB[resolved],
+        "ready": model_cached(resolved),
+        "downloading": _download_progress().get("active", False),
+    }
+    if state["downloading"] and not state["ready"]:
+        state["percent"] = _cache_percent(resolved)
+    return state
+
+
+def _cache_percent(model: str) -> int:
+    """Real download progress: bytes in the HF cache vs the expected size."""
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        expected = MODEL_SIZES_MB[model] * 1024 * 1024
+        cached = 0
+        for repo in scan_cache_dir().repos:
+            if repo.repo_id == MODEL_REPO[model]:
+                cached += sum(rev.size_on_disk for rev in repo.revisions)
+        return max(1, min(99, round(cached / expected * 100))) if expected else 1
+    except Exception:  # noqa: BLE001 — progress is best-effort
+        return 1
+
+
+def _download_progress() -> dict:
+    with database() as db:
+        row = db.execute("SELECT value FROM app_settings WHERE key='model_download'").fetchone()
+    if not row:
+        return {"active": False}
+    try:
+        return json.loads(row["value"])
+    except (ValueError, TypeError):
+        return {"active": False}
+
+
+def _set_download_progress(state: dict) -> None:
+    with database() as db:
+        db.execute(
+            "INSERT OR REPLACE INTO app_settings VALUES (?, ?)",
+            ("model_download", json.dumps(state)),
+        )
+
+
+def download_model(name: Optional[str] = None) -> dict:
+    """Fetch Whisper weights from HuggingFace once. Blocking; run in a thread."""
+    from huggingface_hub import snapshot_download
+
+    resolved = _model_name() if name is None else (name if name in ALLOWED_MODELS else "base")
+    if model_cached(resolved):
+        _set_download_progress({"active": False, "done": True, "model": resolved})
+        return {"model": resolved, "ready": True, "cached": True}
+    _set_download_progress({"active": True, "model": resolved, "percent": 0})
+    try:
+        snapshot_download(repo_id=MODEL_REPO[resolved])
+    except Exception as error:  # noqa: BLE001 — surfaced as a clean 502
+        _set_download_progress({"active": False, "error": str(error)[:300], "model": resolved})
+        raise RuntimeError(
+            "Не удалось скачать модель Whisper. Проверьте интернет / VPN "
+            "(huggingface.co должен открываться без VPN)."
+        ) from error
+    _set_download_progress({"active": False, "done": True, "model": resolved})
+    return {"model": resolved, "ready": True, "cached": False}
+
+
 def _load_model(name: str, timeout: float):
     """Load Whisper in a worker thread so a hung HuggingFace download can time out."""
     box: dict = {}

@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -110,7 +111,7 @@ async def license_gate(request: Request, call_next):
         return await call_next(request)
     method, path = request.method, request.url.path
     # Bot/payment endpoints run server-side on the host and have no local key.
-    public = path.startswith(("/api/health", "/api/license", "/api/bot", "/api/payments"))
+    public = path.startswith(("/api/health", "/api/license", "/api/bot", "/api/payments", "/api/model"))
     # Cancelling must always work, even if the key expires mid-render.
     if public or method not in ("POST", "PUT", "PATCH", "DELETE") or path.endswith("/cancel"):
         return await call_next(request)
@@ -252,6 +253,40 @@ def storage_usage() -> dict:
     db_path = settings.storage / DB_FILENAME
     db_size = db_path.stat().st_size if db_path.exists() else 0
     return {"total": total + db_size, "database": db_size, **breakdown}
+
+
+_model_download_lock = threading.Lock()
+
+
+@app.get("/api/model")
+def model_state() -> dict:
+    from .services.transcription_service import model_download_state
+
+    return model_download_state()
+
+
+@app.post("/api/model/download")
+def model_download() -> dict:
+    """First run: fetch Whisper weights in the background, poll /api/model."""
+    from .services.transcription_service import download_model, model_download_state
+
+    if not _model_download_lock.acquire(blocking=False):
+        return model_download_state()
+    state = model_download_state()
+    if state["ready"] or state["downloading"]:
+        _model_download_lock.release()
+        return state
+
+    def _run() -> None:
+        try:
+            download_model()
+        except Exception:  # noqa: BLE001 — state is stored for the UI to read
+            pass
+        finally:
+            _model_download_lock.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return model_download_state()
 
 
 @app.delete("/api/videos/{video_id}")

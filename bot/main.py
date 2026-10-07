@@ -61,6 +61,7 @@ def _db() -> sqlite3.Connection:
 
 SUPPORT_URL = "https://t.me/LiveForWork1"
 CHANNEL_URL = "https://t.me/Klipani_of"
+RELEASES_URL = "https://github.com/doshikanimate-svg/klipani/releases/latest"
 
 ABOUT_TEXT = (
     "📱 <b>KLIPANI</b> — студия вертикальных клипов.\n\n"
@@ -77,6 +78,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🛟 Поддержка"), KeyboardButton(text="ℹ️ О проекте")],
             [KeyboardButton(text="💳 Тарифы"), KeyboardButton(text="🛒 Купить подписку")],
+            [KeyboardButton(text="📥 Скачать приложение")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -200,6 +202,23 @@ async def on_menu_text(message: Message) -> None:
         await message.answer(
             "🛒 Выберите тариф для покупки:",
             reply_markup=plans_keyboard(),
+        )
+    elif text.startswith("📥"):
+        await message.answer(
+            "📥 <b>Скачать KLIPANI:</b>\n\n"
+            "Выбирайте файл под свою систему на странице релизов — "
+            "там всегда последняя версия:",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬇️ Страница загрузки", url=RELEASES_URL)],
+            ]),
+        )
+        await message.answer(
+            "⚠️ Приложение пока без платной подписи издателя:\n"
+            "• <b>macOS</b>: после установки откройте через правый клик → «Открыть»;\n"
+            "• <b>Windows</b>: при предупреждении SmartScreen нажмите «Подробнее» → «Выполнить в любом случае».\n\n"
+            "При первом запуске скачайте модель Whisper кнопкой в приложении (~150 МБ, один раз).",
+            parse_mode="HTML",
         )
 
 

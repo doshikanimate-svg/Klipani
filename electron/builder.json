@@ -5,6 +5,11 @@
   "directories": {
     "output": "release"
   },
+  "publish": {
+    "provider": "github",
+    "owner": "doshikanimate-svg",
+    "repo": "klipani"
+  },
   "files": [
     "electron/main.js",
     "electron/icon.icns",

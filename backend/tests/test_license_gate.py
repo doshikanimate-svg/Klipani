@@ -38,6 +38,19 @@ def test_write_endpoints_require_license(client) -> None:
     assert "Klipani_bot" in blocked.json()["detail"]
 
 
+def test_model_endpoints_are_public_first_run(client, monkeypatch) -> None:
+    """Setup endpoints stay open without a key: the user downloads the model first."""
+    from app.services import transcription_service as ts
+
+    assert client.get("/api/model").status_code == 200
+    monkeypatch.setattr(ts, "model_cached", lambda name=None: True)
+    body = client.post("/api/model/download").json()
+    assert body["ready"] is True
+    state = client.get("/api/model").json()
+    assert state["ready"] is True
+    assert state["size_mb"] > 0
+
+
 def test_trial_and_paid_plans_unlock_and_report_free_flag(client) -> None:
     trial = issue_license(42, "trial")["key"]
     assert client.post("/api/license", json={"key": trial}).status_code == 200

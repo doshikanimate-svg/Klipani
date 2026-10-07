@@ -68,4 +68,4 @@ def test_reply_menu_buttons() -> None:
 
     keyboard = bot_main.main_menu_keyboard()
     texts = [button.text for row in keyboard.keyboard for button in row]
-    assert texts == ["🛟 Поддержка", "ℹ️ О проекте", "💳 Тарифы", "🛒 Купить подписку"]
+    assert texts == ["🛟 Поддержка", "ℹ️ О проекте", "💳 Тарифы", "🛒 Купить подписку", "📥 Скачать приложение"]
