@@ -45,6 +45,13 @@ def create_highlights(video: dict, segments: Optional[list[dict]] = None) -> lis
             else fallback.find_highlights(duration)
         )
     selected = select_highlights(candidates, video)
+    if segments:
+        from .trigger_service import find_trigger_moments, strip_overlapped
+
+        triggers = find_trigger_moments(segments, duration)
+        if triggers:
+            # Trigger windows win over overlapping LLM picks, then pin to top.
+            selected = select_highlights(triggers + strip_overlapped(selected, triggers), video)
     save_analysis(video["id"], has_transcript=bool(segments), segments=len(segments or []), llm_provider=provider_name)
     return _persist(video["id"], selected)
 

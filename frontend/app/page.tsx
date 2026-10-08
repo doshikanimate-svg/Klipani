@@ -603,6 +603,9 @@ export default function Home() {
           <div className="mt-2 text-sm text-zinc-400">
             или <span className="font-medium text-brand-cyan">выберите файл</span>
           </div>
+          <p className="mt-3 text-xs text-zinc-500">
+            ⚡ Фишка: скажите на стриме «клипани!» — нарежем 30 секунд до слова + сам момент
+          </p>
           <div className="mt-4 flex justify-center gap-2">
             {["MP4", "MKV", "MOV", "WEBM"].map((f) => (
               <span key={f} className="rounded-md bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-zinc-400">

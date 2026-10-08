@@ -124,7 +124,11 @@ def clamp_window(start: float, end: float, duration: float, max_core: float, min
 
 
 def select_highlights(candidates: list[dict], video: dict) -> list[dict]:
-    """Rank by blended score, drop near-duplicates, keep top N."""
+    """Rank by blended score, drop near-duplicates, keep top N.
+
+    Pinned candidates (the «клипани!» trigger) are always kept: they go first
+    and ignore the top-N cap, so the signature feature never loses to the cap.
+    """
     settings = get_settings()
     path = Path(video["path"])
     duration = float(video["duration"])
@@ -144,10 +148,22 @@ def select_highlights(candidates: list[dict], video: dict) -> list[dict]:
             "score": score,
         })
     enriched.sort(key=lambda item: (-item["score"], item["start_time"]))
+    pinned = [candidate for candidate in enriched if candidate.get("pinned")]
+    rest = [candidate for candidate in enriched if not candidate.get("pinned")]
     selected: list[dict] = []
-    for candidate in enriched:
+
+    def too_close(candidate: dict) -> bool:
         midpoint = (candidate["start_time"] + candidate["end_time"]) / 2
-        if any(abs(midpoint - (item["start_time"] + item["end_time"]) / 2) < settings.min_highlight_distance for item in selected):
+        return any(
+            abs(midpoint - (item["start_time"] + item["end_time"]) / 2) < settings.min_highlight_distance
+            for item in selected
+        )
+
+    for candidate in pinned:
+        if not too_close(candidate):
+            selected.append(candidate)
+    for candidate in rest:
+        if too_close(candidate):
             continue
         selected.append(candidate)
         if len(selected) >= settings.max_highlights:
