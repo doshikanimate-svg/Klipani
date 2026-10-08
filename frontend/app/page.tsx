@@ -79,7 +79,7 @@ export default function Home() {
   const [licenseKey, setLicenseKey] = useState("");
   const [licenseBusy, setLicenseBusy] = useState(false);
   const [health, setHealth] = useState<Health | undefined>();
-  const [model, setModel] = useState<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number } | undefined>();
+  const [model, setModel] = useState<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number; error?: string; attempt?: number; attempts?: number } | undefined>();
   const [modelBusy, setModelBusy] = useState(false);
   const [llm, setLlm] = useState<{ provider: string; model: string; daemon: boolean; ready: boolean; pulling: boolean; percent?: number; install_url: string; download_url: string; os_label: string } | undefined>();
   const [llmBusy, setLlmBusy] = useState(false);
@@ -624,7 +624,11 @@ export default function Home() {
             {model.downloading || modelBusy ? (
               <div className="mt-3">
                 <div className="mb-1 flex justify-between text-xs text-zinc-400">
-                  <span>Скачивание…</span>
+                  <span>
+                    {model.attempt && model.attempts
+                      ? `Скачивание… (попытка ${model.attempt}/${model.attempts}, продолжается с места обрыва)`
+                      : "Скачивание…"}
+                  </span>
                   <span className="font-mono">{model.percent !== undefined ? `${model.percent}%` : "…"}</span>
                 </div>
                 <div className="progress-shimmer h-2 overflow-hidden rounded-full bg-zinc-800">
@@ -635,12 +639,19 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              <button
-                onClick={startModelDownload}
-                className="btn-glow mt-3 rounded-xl bg-brand-cyan px-5 py-2.5 text-sm font-bold text-black hover:brightness-110"
-              >
-                Скачать модель (~{model.size_mb} МБ)
-              </button>
+              <div>
+                {model.error && (
+                  <p className="mt-2 rounded-lg border border-brand-pink/40 bg-brand-pink/10 p-2 text-xs text-red-200">
+                    Соединение оборвалось. Прогресс сохранён — нажмите «Продолжить», докачка пойдёт с места обрыва.
+                  </p>
+                )}
+                <button
+                  onClick={startModelDownload}
+                  className="btn-glow mt-3 rounded-xl bg-brand-cyan px-5 py-2.5 text-sm font-bold text-black hover:brightness-110"
+                >
+                  {model.error ? "Продолжить скачивание" : `Скачать модель (~${model.size_mb} МБ)`}
+                </button>
+              </div>
             )}
           </div>
         )}

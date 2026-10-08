@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,8 @@ from huggingface_hub.utils import EntryNotFoundError
 
 from ..config import get_settings
 from ..db import database, one
+
+logger = logging.getLogger(__name__)
 
 ProgressCallback = Optional[Callable[[str, int], None]]
 
@@ -42,12 +45,18 @@ MODEL_SIZES_MB = {"tiny": 80, "base": 150, "small": 470, "medium": 1500}
 def model_download_state(name: Optional[str] = None) -> dict:
     """First-run screen data: which model, how big, is it already here."""
     resolved = _model_name() if name is None else (name if name in ALLOWED_MODELS else "base")
+    progress = _download_progress()
     state = {
         "model": resolved,
         "size_mb": MODEL_SIZES_MB[resolved],
         "ready": model_cached(resolved),
-        "downloading": _download_progress().get("active", False),
+        "downloading": progress.get("active", False),
     }
+    if progress.get("error") and not state["ready"]:
+        state["error"] = progress["error"]
+    if progress.get("attempt"):
+        state["attempt"] = progress["attempt"]
+        state["attempts"] = progress.get("attempts", 0)
     if state["downloading"] and not state["ready"]:
         state["percent"] = _cache_percent(resolved)
     return state
@@ -87,8 +96,15 @@ def _set_download_progress(state: dict) -> None:
         )
 
 
-def download_model(name: Optional[str] = None) -> dict:
-    """Fetch Whisper weights from HuggingFace once. Blocking; run in a thread."""
+def download_model(name: Optional[str] = None, max_attempts: int = 5) -> dict:
+    """Fetch Whisper weights from HuggingFace once. Blocking; run in a thread.
+
+    Retries with backoff: HuggingFace connections often stall midway (frozen
+    percent in the UI). Partial files are reused, so retries resume rather
+    than restart. After the last attempt the error is stored for the UI.
+    """
+    import time as _time
+
     from huggingface_hub import snapshot_download
 
     resolved = _model_name() if name is None else (name if name in ALLOWED_MODELS else "base")
@@ -96,14 +112,28 @@ def download_model(name: Optional[str] = None) -> dict:
         _set_download_progress({"active": False, "done": True, "model": resolved})
         return {"model": resolved, "ready": True, "cached": True}
     _set_download_progress({"active": True, "model": resolved, "percent": 0})
-    try:
-        snapshot_download(repo_id=MODEL_REPO[resolved])
-    except Exception as error:  # noqa: BLE001 — surfaced as a clean 502
-        _set_download_progress({"active": False, "error": str(error)[:300], "model": resolved})
-        raise RuntimeError(
-            "Не удалось скачать модель Whisper. Проверьте интернет / VPN "
-            "(huggingface.co должен открываться без VPN)."
-        ) from error
+    for attempt in range(1, max_attempts + 1):
+        try:
+            snapshot_download(repo_id=MODEL_REPO[resolved])
+        except Exception as error:  # noqa: BLE001 — retry, then surface
+            logger.warning("Whisper download attempt %s/%s failed: %s", attempt, max_attempts, error)
+            if model_cached(resolved):
+                break  # resumed enough to complete between attempts
+            if attempt < max_attempts:
+                _set_download_progress({
+                    "active": True, "model": resolved,
+                    "percent": _cache_percent(resolved),
+                    "attempt": attempt + 1, "attempts": max_attempts,
+                })
+                _time.sleep(min(30, 5 * attempt))
+                continue
+            _set_download_progress({"active": False, "error": str(error)[:300], "model": resolved})
+            raise RuntimeError(
+                "Не удалось скачать модель Whisper. Проверьте интернет / VPN "
+                "(huggingface.co должен открываться без VPN)."
+            ) from error
+        else:
+            break
     _set_download_progress({"active": False, "done": True, "model": resolved})
     return {"model": resolved, "ready": True, "cached": False}
 

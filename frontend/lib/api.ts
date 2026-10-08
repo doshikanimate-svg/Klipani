@@ -137,11 +137,11 @@ export const api = {
       "/api/license",
     ),
   modelState: () =>
-    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number }>(
+    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number; error?: string; attempt?: number; attempts?: number }>(
       "/api/model",
     ),
   modelDownload: () =>
-    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number }>(
+    request<{ model: string; size_mb: number; ready: boolean; downloading: boolean; percent?: number; error?: string; attempt?: number; attempts?: number }>(
       "/api/model/download",
       { method: "POST" },
     ),
