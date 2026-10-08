@@ -1010,7 +1010,7 @@ export default function Home() {
             <input
               value={licenseKey}
               onChange={(e) => setLicenseKey(e.target.value)}
-              placeholder="KLIP-..."
+              placeholder="KLIP2-..."
               className="flex-1 rounded-xl border border-zinc-800 bg-black/40 px-3 py-2 font-mono text-sm text-zinc-200"
             />
             <button

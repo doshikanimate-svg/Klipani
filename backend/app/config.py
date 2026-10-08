@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     tiktok_token_path: str = "storage/tt_token.json"
     telegram_bot_token: str = ""
     license_secret: str = ""
+    license_ed25519_private: str = ""
     telegram_webhook_secret: str = ""
     tg_admin_username: str = "LiveForWork1"
     crypto_wallet: str = ""

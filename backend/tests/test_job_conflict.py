@@ -135,7 +135,7 @@ def test_license_roundtrip_and_tamper(monkeypatch) -> None:
     lic.get_settings.cache_clear()
     try:
         issued = lic.issue_license(12345, "trial")
-        assert issued["key"].startswith("KLIP-")
+        assert issued["key"].startswith("KLIP2-")  # ed25519 preferred when configured
         info = lic.verify_license(issued["key"])
         assert info is not None and info["plan"] == "trial" and info["telegram_id"] == 12345
         assert lic.verify_license(issued["key"][:-2] + "xx") is None
@@ -145,6 +145,12 @@ def test_license_roundtrip_and_tamper(monkeypatch) -> None:
             raise AssertionError("expected ValueError")
         except ValueError:
             pass
+        # Legacy HMAC path (no ed key, e.g. minimal dev env) still works.
+        monkeypatch.setattr(lic, "_ed_private", lambda: None)
+        legacy = lic.issue_license(12345, "trial")
+        assert legacy["key"].startswith("KLIP-") and not legacy["key"].startswith("KLIP2-")
+        assert lic.verify_license(legacy["key"]) is not None
+        assert lic.verify_license(legacy["key"][:-2] + "xx") is None
     finally:
         lic.get_settings.cache_clear()
 

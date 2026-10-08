@@ -288,6 +288,32 @@ async def cmd_myid(message: Message) -> None:
     )
 
 
+def convert_legacy_key(tg_id: int) -> Optional[str]:
+    """Re-issue a stored HMAC key as Ed25519 with the same expiry.
+
+    Old app versions are gone; the desktop verifies only KLIP2 now.
+    Returns the new key, or None when there is nothing to convert.
+    """
+    from app.services.license_service import issue_license, key_format, verify_license
+
+    with _db() as db:
+        row = db.execute(
+            "SELECT plan, license_key, exp FROM subscribers WHERE tg_id=?", (int(tg_id),)
+        ).fetchone()
+    if not row:
+        return None
+    plan, stored_key, _exp = row
+    if key_format(stored_key) != "hmac":
+        return None
+    info = verify_license(stored_key)  # bot has LICENSE_SECRET: verifies HMAC fine
+    if not info:
+        return None
+    converted = issue_license(info["telegram_id"], info["plan"], exp=info["exp"])
+    save_subscriber(info["telegram_id"], info["plan"], converted["key"], info["exp"])
+    logger.info("converted legacy key to ed25519 for tg_id=%s", tg_id)
+    return converted["key"]
+
+
 async def cmd_mykey(message: Message) -> None:
     with _db() as db:
         row = db.execute(
@@ -296,8 +322,9 @@ async def cmd_mykey(message: Message) -> None:
     if not row or row[1] <= time.time():
         await message.answer("Активного ключа нет. Выберите тариф: /start")
         return
+    key = convert_legacy_key(message.from_user.id) or row[0]
     await message.answer(
-        f"🔑 Ваш ключ:\n<code>{row[0]}</code>\n\nВставьте его в приложении: Подписка → Активировать.",
+        f"🔑 Ваш ключ:\n<code>{key}</code>\n\nВставьте его в приложении: Подписка → Активировать.",
         parse_mode="HTML",
     )
 
@@ -362,6 +389,18 @@ async def on_plan(callback: CallbackQuery) -> None:
         return
     if plan_id == "trial":
         if not claim_trial(callback.from_user.id):
+            converted = convert_legacy_key(callback.from_user.id)
+            if converted:
+                # Claim stands, only the format was outdated: hand over the
+                # new key instead of refusing.
+                await _safe_edit(
+                    callback,
+                    "🔄 Ваш ключ обновлён под новую версию приложения:\n\n"
+                    f"<code>{converted}</code>\n\n"
+                    "Вставьте его в приложении: Подписка → Активировать.",
+                )
+                await callback.answer()
+                return
             await _safe_edit(
                 callback,
                 "😕 Пробная подписка выдаётся <b>1 раз на аккаунт</b>, и вы её уже использовали.\n\n"

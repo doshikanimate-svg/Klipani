@@ -334,3 +334,62 @@ def test_format_duration_is_human() -> None:
     assert "мин" in format_duration(240)
     assert "ч" in format_duration(7200)
     assert format_duration(None) == ""
+
+
+
+class _NoSecrets:
+    """Simulates the desktop app: no LICENSE_SECRET, no private key on disk."""
+    license_secret = ""
+    license_ed25519_private = ""
+
+
+def test_ed25519_roundtrip_and_tamper() -> None:
+    """Current format: signed by bot, verified anywhere (real .env has both keys)."""
+    import app.services.license_service as lic
+
+    issued = lic.issue_license(4242, "month")
+    assert issued["key"].startswith("KLIP2-")
+    assert lic.key_format(issued["key"]) == "ed25519"
+    info = lic.verify_license(issued["key"])
+    assert info is not None and info["plan"] == "month" and info["telegram_id"] == 4242
+    assert lic.verify_license(issued["key"][:-2] + "xx") is None
+    assert lic.verify_license("garbage") is None
+
+
+def test_ed25519_verifies_without_any_secret(monkeypatch) -> None:
+    """Desktop has zero secrets — KLIP2 must verify, legacy KLIP- must not."""
+    import app.services.license_service as lic
+
+    modern = lic.issue_license(11, "trial")["key"]
+    monkeypatch.setattr(lic, "_ed_private", lambda: None)
+    legacy = lic.issue_license(11, "trial")["key"]
+    assert legacy.startswith("KLIP-") and not legacy.startswith("KLIP2-")
+
+    monkeypatch.setattr(lic, "get_settings", lambda: _NoSecrets())
+    assert lic.verify_license(modern) is not None
+    assert lic.verify_license(modern)["plan"] == "trial"
+    assert lic.verify_license(legacy) is None
+
+
+def test_convert_legacy_key_keeps_expiry(monkeypatch, tmp_path) -> None:
+    import sys
+    from pathlib import Path
+
+    import app.services.license_service as lic
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bot"))
+    import main as bot
+
+    monkeypatch.setattr(bot, "DB_PATH", tmp_path / "conv.db")
+    real_signer = lic._ed_private
+    monkeypatch.setattr(lic, "_ed_private", lambda: None)
+    legacy = lic.issue_license(31337, "month")
+    assert legacy["key"].startswith("KLIP-")
+    bot.save_subscriber(31337, "month", legacy["key"], legacy["exp"])
+
+    monkeypatch.setattr(lic, "_ed_private", real_signer)  # restore real signer
+    converted = bot.convert_legacy_key(31337)
+    assert converted is not None and converted.startswith("KLIP2-")
+    info = lic.verify_license(converted)
+    assert info is not None and info["exp"] == legacy["exp"]
+    assert bot.convert_legacy_key(31337) is None  # already converted

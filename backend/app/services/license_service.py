@@ -1,10 +1,15 @@
 """License keys for KLIPANI subscriptions.
 
-Key format: KLIP-<base64url(payload)>.<base64url(hmac_sha256(payload, secret))>
-payload = {"tg": <telegram_id>, "plan": <plan_id>, "exp": <unix_ts>}.
+Two formats (payload is always {"tg": <telegram_id>, "plan": <plan_id>, "exp": <unix_ts>}):
+
+- KLIP2-<payload>.<ed25519_sig> — current. Signed by the bot's private key,
+  verified by the embedded public key. Fully offline, nothing secret ships
+  inside the desktop app.
+- KLIP-<payload>.<hmac_sig> — legacy. Verified only where LICENSE_SECRET is
+  configured (bot/server); the desktop app never sees that secret.
 
 Offline-verifiable: the desktop app checks signature + expiry locally,
-no central server needed. The Telegram bot issues keys after (stub) payment.
+no central server needed. The Telegram bot issues keys after payment.
 """
 
 import base64
@@ -27,6 +32,11 @@ FREE_PLANS = {"trial"}
 PAID_PLANS = {plan for plan in PLANS if plan not in FREE_PLANS}
 
 PREFIX = "KLIP-"
+PREFIX2 = "KLIP2-"
+
+# Ed25519 public key matching the bot's LICENSE_ED25519_PRIVATE.
+# Public by design: it verifies signatures but cannot create them.
+ED25519_PUBLIC_HEX = "0269f306e70d9ed641b2affa451efc6e85b954027df5a35552135908436f959d"
 
 
 def _secret() -> bytes:
@@ -34,6 +44,19 @@ def _secret() -> bytes:
     if not secret:
         raise RuntimeError("LICENSE_SECRET не задан в .env (сгенерируйте: openssl rand -hex 32).")
     return secret.encode()
+
+
+def _ed_private() -> Optional[bytes]:
+    raw = (get_settings().license_ed25519_private or "").strip()
+    if not raw:
+        return None
+    try:
+        key = bytes.fromhex(raw)
+    except ValueError as error:
+        raise RuntimeError("LICENSE_ED25519_PRIVATE — не hex.") from error
+    if len(key) != 32:
+        raise RuntimeError("LICENSE_ED25519_PRIVATE — нужно 32 байта в hex.")
+    return key
 
 
 def _b64encode(data: bytes) -> str:
@@ -44,39 +67,110 @@ def _b64decode(data: str) -> bytes:
     return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
 
 
-def issue_license(telegram_id: int, plan_id: str) -> dict:
+def _check_payload(payload: object) -> Optional[dict]:
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("plan") not in PLANS:
+        return None
+    try:
+        exp = int(payload.get("exp", 0))
+    except (TypeError, ValueError):
+        return None
+    if exp <= int(time.time()):
+        return None
+    try:
+        telegram_id = int(payload.get("tg", 0))
+    except (TypeError, ValueError):
+        return None
+    return {"telegram_id": telegram_id, "plan": payload["plan"], "exp": exp}
+
+
+def _split(key: str, prefix: str) -> Optional[tuple]:
+    try:
+        if not key.startswith(prefix):
+            return None
+        raw_b64, sig_b64 = key[len(prefix):].split(".", 1)
+        return _b64decode(raw_b64), _b64decode(sig_b64)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _verify_ed25519(key: str) -> Optional[dict]:
+    parts = _split(key, PREFIX2)
+    if not parts:
+        return None
+    raw, sig = parts
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+        public = Ed25519PublicKey.from_public_bytes(bytes.fromhex(ED25519_PUBLIC_HEX))
+        public.verify(sig, raw)
+    except Exception:  # noqa: BLE001 — any failure means "not our signature"
+        return None
+    try:
+        return _check_payload(json.loads(raw.decode()))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _verify_hmac(key: str) -> Optional[dict]:
+    """Legacy keys. Needs LICENSE_SECRET, so it only works on bot/server —
+    the desktop app raises RuntimeError here and treats the key as unlicensed
+    unless it also verifies as KLIP2."""
+    parts = _split(key, PREFIX)
+    if not parts:
+        return None
+    raw, sig = parts
+    if not hmac.compare_digest(sig, hmac.new(_secret(), raw, hashlib.sha256).digest()):
+        return None
+    try:
+        return _check_payload(json.loads(raw.decode()))
+    except (ValueError, AttributeError):
+        return None
+
+
+def issue_license(telegram_id: int, plan_id: str, exp: Optional[int] = None) -> dict:
+    """Issue a key. Prefers Ed25519 (offline-verifiable in the app); falls back
+    to HMAC when no Ed25519 private key is configured (local dev without it)."""
     if plan_id not in PLANS:
         raise ValueError("Неизвестный тариф.")
+    private = _ed_private()
     payload = {
         "tg": int(telegram_id),
         "plan": plan_id,
-        "exp": int(time.time()) + PLANS[plan_id]["days"] * 86400,
+        "exp": exp if exp is not None else int(time.time()) + PLANS[plan_id]["days"] * 86400,
     }
     raw = json.dumps(payload, separators=(",", ":")).encode()
+    if private is not None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        sig = Ed25519PrivateKey.from_private_bytes(private).sign(raw)
+        return {"key": f"{PREFIX2}{_b64encode(raw)}.{_b64encode(sig)}", **payload}
     sig = hmac.new(_secret(), raw, hashlib.sha256).digest()
     return {"key": f"{PREFIX}{_b64encode(raw)}.{_b64encode(sig)}", **payload}
 
 
 def verify_license(key: str) -> Optional[dict]:
     """Return payload dict if valid and not expired, else None."""
-    try:
-        if not key.startswith(PREFIX):
-            return None
-        raw_b64, sig_b64 = key[len(PREFIX):].split(".", 1)
-        raw = _b64decode(raw_b64)
-        sig = _b64decode(sig_b64)
-        if not hmac.compare_digest(sig, hmac.new(_secret(), raw, hashlib.sha256).digest()):
-            return None
-        payload = json.loads(raw.decode())
-        if not isinstance(payload, dict):
-            return None
-        if payload.get("plan") not in PLANS:
-            return None
-        if int(payload.get("exp", 0)) <= int(time.time()):
-            return None
-        return {"telegram_id": int(payload.get("tg", 0)), "plan": payload["plan"], "exp": int(payload["exp"])}
-    except (ValueError, KeyError, TypeError, AttributeError):
+    if not key:
         return None
+    found = _verify_ed25519(key)
+    if found:
+        return found
+    try:
+        return _verify_hmac(key)
+    except RuntimeError:
+        return None  # no LICENSE_SECRET here (desktop app): HMAC keys don't verify
+
+
+def key_format(key: str) -> Optional[str]:
+    """'ed25519' / 'hmac' / None — used by the bot to convert legacy keys."""
+    if key.startswith(PREFIX2):
+        return "ed25519"
+    if key.startswith(PREFIX):
+        return "hmac"
+    return None
 
 
 def current_state() -> dict:
