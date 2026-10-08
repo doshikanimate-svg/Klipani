@@ -239,29 +239,48 @@ app.whenReady().then(() => {
   });
 });
 
+function updateLog(text) {
+  const file = logFile("update.log");
+  const line = `[${new Date().toISOString()}] ${text}\n`;
+  try {
+    if (file) fs.appendFileSync(file, line);
+  } catch {
+    /* best effort */
+  }
+  console.log(`[klipani] updater: ${text}`);
+}
+
 function checkForUpdates() {
   if (!autoUpdater) return;
-  autoUpdater.autoDownload = false;
+  // One clean scenario: download starts by itself in the background, the user
+  // only answers one question — restart now or later. No silent failures:
+  // everything lands in update.log.
+  autoUpdater.autoDownload = true;
+  const win = () => BrowserWindow.getAllWindows()[0];
+  autoUpdater.on("checking-for-update", () => updateLog("checking for updates"));
   autoUpdater.on("update-available", (info) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    const answer = dialog.showMessageBoxSync(win || undefined, {
-      type: "question",
-      buttons: ["Скачать", "Позже"],
-      defaultId: 0,
-      title: "Доступно обновление",
-      message: `Вышла версия ${info.version}. Скачать и установить при выходе?`,
-    });
-    if (answer === 0) autoUpdater.downloadUpdate();
+    updateLog(`available: ${info.version}, downloading in background`);
+    const w = win();
+    if (w) w.setProgressBar(0.01);
   });
-  autoUpdater.on("update-downloaded", () => {
-    const answer = dialog.showMessageBoxSync(BrowserWindow.getAllWindows()[0], {
+  autoUpdater.on("download-progress", (progress) => {
+    const w = win();
+    if (w) w.setProgressBar(Math.max(0.02, Math.min(0.99, (progress.percent || 0) / 100)));
+  });
+  autoUpdater.on("update-downloaded", (info) => {
+    updateLog(`downloaded: ${info.version}, asking for restart`);
+    const w = win();
+    if (w) w.setProgressBar(-1);
+    const answer = dialog.showMessageBoxSync(w, {
       type: "question",
-      buttons: ["Перезапустить", "Позже"],
+      buttons: ["Установить и перезапустить", "Позже"],
       defaultId: 0,
+      cancelId: 1,
       title: "Обновление готово",
-      message: "Новая версия скачана. Перезапустить KLIPANI для установки?",
+      message: `KLIPANI ${info.version} скачалась. Установить сейчас? Приложение перезапустится.`,
     });
     if (answer === 0) {
+      updateLog("user confirmed restart, quitting children and installing");
       for (const child of children) {
         try {
           child.kill();
@@ -269,14 +288,19 @@ function checkForUpdates() {
           /* already dead */
         }
       }
-      autoUpdater.quitAndInstall();
+      autoUpdater.quitAndInstall(false, true);
+    } else {
+      updateLog("user postponed restart, will install on next quit");
     }
   });
+  autoUpdater.on("update-not-available", () => updateLog("already on latest version"));
   autoUpdater.on("error", (error) => {
-    console.log("[klipani] updater:", error == null ? "unknown" : error.message || error);
+    updateLog(`error: ${error == null ? "unknown" : error.message || error}`);
+    const w = win();
+    if (w) w.setProgressBar(-1);
   });
   autoUpdater.checkForUpdates().catch((error) => {
-    console.log("[klipani] update check failed:", error == null ? "unknown" : error.message || error);
+    updateLog(`check failed: ${error == null ? "unknown" : error.message || error}`);
   });
 }
 
