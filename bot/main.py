@@ -55,8 +55,70 @@ def _db() -> sqlite3.Connection:
         """INSERT OR IGNORE INTO trial_claims(tg_id, claimed_at)
            SELECT tg_id, exp FROM subscribers WHERE plan='trial'"""
     )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS users (
+             tg_id INTEGER PRIMARY KEY, username TEXT NOT NULL DEFAULT '',
+             updated_at INTEGER NOT NULL DEFAULT 0
+           )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS pending_payments (
+             code TEXT PRIMARY KEY, tg_id INTEGER NOT NULL, plan TEXT NOT NULL,
+             created_at INTEGER NOT NULL, method TEXT NOT NULL DEFAULT '',
+             status TEXT NOT NULL DEFAULT ''
+           )"""
+    )
     connection.commit()
     return connection
+
+
+def _remember_user(tg_id: int, username: Optional[str]) -> None:
+    """Map username -> tg_id so payment notifications find the admin by name.
+
+    An empty username never overwrites a known one (most users have none).
+    """
+    import time as _time
+
+    try:
+        with _db() as db:
+            db.execute(
+                """INSERT INTO users(tg_id, username, updated_at) VALUES (?, ?, ?)
+                   ON CONFLICT(tg_id) DO UPDATE SET
+                     username=CASE WHEN excluded.username <> '' THEN excluded.username ELSE users.username END,
+                     updated_at=excluded.updated_at""",
+                (int(tg_id), (username or "").lower(), int(_time.time())),
+            )
+            db.commit()
+    except Exception as error:  # noqa: BLE001 — never break a handler over this
+        logger.warning("remember user failed: %s", error)
+
+
+def _admin_id() -> Optional[int]:
+    """Admin's chat id, learned from whoever ran /start with the admin username."""
+    expected = (get_settings().tg_admin_username or "").lower()
+    if not expected:
+        return None
+    try:
+        with _db() as db:
+            row = db.execute(
+                "SELECT tg_id FROM users WHERE username=?", (expected,)
+            ).fetchone()
+        return int(row[0]) if row else None
+    except Exception as error:  # noqa: BLE001
+        logger.warning("admin lookup failed: %s", error)
+        return None
+
+
+async def _notify_admin(bot, text: str) -> None:
+    """Payment/activity ping to the admin. Silent when the admin never said /start."""
+    chat_id = _admin_id()
+    if not chat_id:
+        logger.info("admin ping skipped (admin unknown yet): %s", text[:80])
+        return
+    try:
+        await bot.send_message(chat_id, text, parse_mode="HTML")
+    except Exception as error:  # noqa: BLE001
+        logger.warning("admin ping failed: %s", error)
 
 
 SUPPORT_URL = "https://t.me/LiveForWork1"
@@ -81,6 +143,7 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="🛟 Поддержка"), KeyboardButton(text="ℹ️ О проекте")],
             [KeyboardButton(text="💳 Тарифы"), KeyboardButton(text="🛒 Купить подписку")],
             [KeyboardButton(text="📥 Скачать приложение")],
+            [KeyboardButton(text="🛠 Админка")],
         ],
         resize_keyboard=True,
         is_persistent=True,
@@ -195,6 +258,7 @@ def confirm_keyboard(plan_id: str) -> InlineKeyboardMarkup:
 
 
 async def cmd_start(message: Message) -> None:
+    _remember_user(message.from_user.id, getattr(message.from_user, "username", None))
     await message.answer(
         "👋 Привет! Я бот <b>KLIPANI</b> — студии вертикальных клипов.\n\n"
         "Здесь можно выбрать тариф, оформить подписку и получить лицензионный ключ "
@@ -207,6 +271,7 @@ async def cmd_start(message: Message) -> None:
 
 async def on_menu_text(message: Message) -> None:
     """Reply-keyboard buttons route here."""
+    _remember_user(message.from_user.id, getattr(message.from_user, "username", None))
     text = (message.text or "").strip()
     if text.startswith("🛟"):
         await message.answer(
@@ -253,6 +318,12 @@ async def on_menu_text(message: Message) -> None:
             "При первом запуске скачайте модель Whisper кнопкой в приложении (~150 МБ, один раз).",
             parse_mode="HTML",
         )
+    elif text.startswith("🛠"):
+        if not is_admin(message.from_user):
+            await message.answer("Нет доступа.")
+            return
+        panel_text, keyboard = _admin_panel_content()
+        await message.answer(panel_text, parse_mode="HTML", reply_markup=keyboard)
 
 
 async def _safe_edit(callback: CallbackQuery, text: str, reply_markup=None) -> None:
@@ -415,6 +486,7 @@ def paid_keyboard(code: str) -> InlineKeyboardMarkup:
 
 
 async def on_plan(callback: CallbackQuery) -> None:
+    _remember_user(callback.from_user.id, getattr(callback.from_user, "username", None))
     plan_id = callback.data.split(":", 1)[1]
     info = PLANS.get(plan_id)
     if not info:
@@ -515,6 +587,7 @@ def _pending_delete(code: str) -> None:
 
 
 async def on_method(callback: CallbackQuery) -> None:
+    _remember_user(callback.from_user.id, getattr(callback.from_user, "username", None))
     from app.services import dapayments as da
 
     _, method, plan_id = callback.data.split(":", 2)
@@ -577,6 +650,7 @@ async def on_method(callback: CallbackQuery) -> None:
 
 
 async def on_paid(callback: CallbackQuery) -> None:
+    _remember_user(callback.from_user.id, getattr(callback.from_user, "username", None))
     code = callback.data.split(":", 1)[1]
     pending = _pending_mark(code, "awaiting")
     if not pending:
@@ -589,12 +663,24 @@ async def on_paid(callback: CallbackQuery) -> None:
     )
     await callback.answer()
     logger.info("manual payment awaiting: %s (%s)", code, pending.get("method"))
+    await _notify_admin(
+        callback.bot,
+        f"💰 Новая заявка на оплату: <code>{code}</code> · {pending.get('plan')} · "
+        f"{pending.get('method')} · tg:{pending.get('tg_id')}\n"
+        "Подтвердите кнопкой в 🛠 Админке.",
+    )
 
 
 async def cmd_admin(message: Message) -> None:
     if not is_admin(message.from_user):
         await message.answer("Нет доступа.")
         return
+    text, keyboard = _admin_panel_content()
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+def _admin_panel_content() -> tuple:
+    """Shared by /admin and the 🛠 button: (text, inline keyboard|None)."""
     import sqlite3
 
     connection = sqlite3.connect(DB_PATH)
@@ -620,13 +706,11 @@ async def cmd_admin(message: Message) -> None:
         ])
     if not pend:
         text += "\nОчередь пуста."
-    await message.answer(
-        text, parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None,
-    )
+    return text, (InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None)
 
 
 async def on_admin_decision(callback: CallbackQuery) -> None:
+    _remember_user(callback.from_user.id, getattr(callback.from_user, "username", None))
     if not is_admin(callback.from_user):
         await callback.answer("Нет доступа.", show_alert=True)
         return
@@ -704,6 +788,7 @@ async def on_pay(callback: CallbackQuery) -> None:
 
 
 async def on_confirm(callback: CallbackQuery) -> None:
+    _remember_user(callback.from_user.id, getattr(callback.from_user, "username", None))
     plan_id = callback.data.split(":", 1)[1]
     if await _refuse_trial_payment(callback, plan_id):
         return
@@ -728,6 +813,11 @@ async def on_confirm(callback: CallbackQuery) -> None:
     )
     await callback.answer()
     logger.info("issued %s license to tg_id=%s", plan_id, callback.from_user.id)
+    await _notify_admin(
+        callback.bot,
+        f"💰 Оплата (тестовая): {PLANS[plan_id]['title']} · tg:{callback.from_user.id}\n"
+        f"Ключ <code>{issued['key'][:18]}…</code> выдан.",
+    )
 
 
 async def main() -> None:
@@ -755,7 +845,7 @@ def create_bot():
     dispatcher.message.register(cmd_admin, Command("admin"))
     dispatcher.message.register(
         on_menu_text,
-        F.text.startswith("🛟") | F.text.startswith("ℹ️") | F.text.startswith("💳") | F.text.startswith("🛒") | F.text.startswith("📥"),
+        F.text.startswith("🛟") | F.text.startswith("ℹ️") | F.text.startswith("💳") | F.text.startswith("🛒") | F.text.startswith("📥") | F.text.startswith("🛠"),
     )
     dispatcher.callback_query.register(on_menu, F.data == "menu")
     dispatcher.callback_query.register(on_about, F.data == "about")

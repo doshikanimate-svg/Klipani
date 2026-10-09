@@ -212,6 +212,34 @@ def fetch_donations(page: int = 1) -> list:
     return response.json().get("data", [])
 
 
+def _admin_id(connection):
+    """Admin chat id from the username map the bot collects on /start."""
+    from app.config import get_settings as _settings
+
+    expected = (_settings().tg_admin_username or "").lower()
+    if not expected:
+        return None
+    try:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS users (tg_id INTEGER PRIMARY KEY,"
+            " username TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0)"
+        )
+        row = connection.execute(
+            "SELECT tg_id FROM users WHERE username=?", (expected,)
+        ).fetchone()
+        return int(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def _notify_admin(connection, text: str) -> None:
+    chat_id = _admin_id(connection)
+    if not chat_id:
+        logger.info("admin ping skipped (admin unknown yet)")
+        return
+    _notify_telegram(chat_id, text)
+
+
 def _notify_telegram(tg_id: int, text: str) -> None:
     token = get_settings().telegram_bot_token
     if not token:
@@ -293,6 +321,12 @@ def process_donations(donations: list) -> int:
             connection.commit()
             issued += 1
             logger.info("issued %s license to tg_id=%s (donation %s)", plan, tg_id, donation_id)
+            _notify_admin(
+                connection,
+                f"💰 DonationAlerts: {amount:g} {currency} · {PLANS.get(plan, {}).get('title', plan)} "
+                f"· tg:{tg_id} (донат {donation_id})\n"
+                "Ключ выдан автоматически.",
+            )
             _notify_telegram(
                 tg_id,
                 "✅ Оплата получена, спасибо!\n\n"

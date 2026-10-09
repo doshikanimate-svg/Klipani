@@ -68,7 +68,7 @@ def test_reply_menu_buttons() -> None:
 
     keyboard = bot_main.main_menu_keyboard()
     texts = [button.text for row in keyboard.keyboard for button in row]
-    assert texts == ["🛟 Поддержка", "ℹ️ О проекте", "💳 Тарифы", "🛒 Купить подписку", "📥 Скачать приложение"]
+    assert texts == ["🛟 Поддержка", "ℹ️ О проекте", "💳 Тарифы", "🛒 Купить подписку", "📥 Скачать приложение", "🛠 Админка"]
 
 
 def test_every_menu_button_gets_an_answer() -> None:
@@ -85,6 +85,7 @@ def test_every_menu_button_gets_an_answer() -> None:
         def __init__(self, text):
             self.text = text
             self.answers = []
+            self.from_user = SimpleNamespace(id=999, username="randomuser")
 
         async def answer(self, text, **kwargs):
             self.answers.append(text)
@@ -98,3 +99,99 @@ def test_every_menu_button_gets_an_answer() -> None:
     download = _FakeMessage("📥 Скачать приложение")
     asyncio.run(bot_main.on_menu_text(download))
     assert any("Скачать KLIPANI" in answer for answer in download.answers)
+
+
+def test_admin_button_shared_with_command(monkeypatch, tmp_path) -> None:
+    """🛠 button shows the same panel as /admin; strangers get no access."""
+    import asyncio
+    import sqlite3
+
+    import main as bot_main
+
+    monkeypatch.setattr(bot_main, "DB_PATH", tmp_path / "bot.db")
+
+    class _Msg:
+        def __init__(self, username):
+            self.from_user = SimpleNamespace(id=1, username=username)
+            self.answers = []
+
+        async def answer(self, text, **kwargs):
+            self.answers.append(text)
+
+    stranger = _Msg("randomuser")
+    asyncio.run(bot_main.on_menu_text(_WrapText("🛠 Админка", stranger)))
+    assert stranger.answers == ["Нет доступа."]
+
+    admin = _Msg("LiveForWork1")
+    asyncio.run(bot_main.on_menu_text(_WrapText("🛠 Админка", admin)))
+    assert any("Админка" in a for a in admin.answers)
+
+    # Same content as /admin command.
+    direct = _Msg("LiveForWork1")
+    asyncio.run(bot_main.cmd_admin(direct))
+    assert direct.answers == admin.answers
+
+
+class _WrapText:
+    """Message facade: fixed button text, delegated answers + identity."""
+
+    def __init__(self, text, origin):
+        self.text = text
+        self.from_user = origin.from_user
+        self._origin = origin
+
+    async def answer(self, *args, **kwargs):
+        return await self._origin.answer(*args, **kwargs)
+
+
+def test_admin_lookup_and_notify(monkeypatch, tmp_path) -> None:
+    import asyncio
+
+    import main as bot_main
+
+    monkeypatch.setattr(bot_main, "DB_PATH", tmp_path / "bot.db")
+    assert bot_main._admin_id() is None  # nobody said /start yet
+
+    bot_main._remember_user(777, "LiveForWork1")
+    assert bot_main._admin_id() == 777
+    bot_main._remember_user(777, None)  # empty username must not orphan the admin
+    assert bot_main._admin_id() == 777
+
+    sent = []
+
+    class _Bot:
+        async def send_message(self, chat_id, text, **kwargs):
+            sent.append((chat_id, text))
+
+    bot_main._remember_user(777, "liveforwork1")  # case-insensitive
+    asyncio.run(bot_main._notify_admin(_Bot(), "💰 test"))
+    assert sent == [(777, "💰 test")]
+
+    monkeypatch.setattr(bot_main, "DB_PATH", tmp_path / "empty.db")
+    asyncio.run(bot_main._notify_admin(_Bot(), "💰 lost"))  # silent, no crash
+    assert len(sent) == 1
+
+
+def test_da_admin_notify_on_issue(monkeypatch, tmp_path) -> None:
+    """DonationAlerts auto-issue pings the admin, not just the buyer."""
+    import sqlite3
+
+    import app.services.dapayments as da
+
+    db_path = tmp_path / "da.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "CREATE TABLE users (tg_id INTEGER PRIMARY KEY, username TEXT, updated_at INTEGER)"
+    )
+    connection.execute("INSERT INTO users VALUES (555, 'liveforwork1', 1)")
+    connection.commit()
+
+    assert da._admin_id(connection) == 555
+    connection.close()
+
+    calls = []
+    monkeypatch.setattr(da, "_notify_telegram", lambda tg, text: calls.append((tg, text)))
+    connection = sqlite3.connect(db_path)
+    da._notify_admin(connection, "💰 ping")
+    connection.close()
+    assert calls == [(555, "💰 ping")]

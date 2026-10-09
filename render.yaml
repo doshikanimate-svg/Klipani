@@ -15,6 +15,12 @@ services:
         generateValue: true
       - key: LICENSE_SECRET
         generateValue: true
+      - key: LICENSE_ED25519_PRIVATE
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false
       - key: DA_CLIENT_ID
         sync: false
       - key: DA_CLIENT_SECRET
