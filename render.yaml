@@ -17,9 +17,9 @@ services:
         generateValue: true
       - key: LICENSE_ED25519_PRIVATE
         sync: false
-      - key: UPSTASH_REDIS_REST_URL
+      - key: GITHUB_TOKEN
         sync: false
-      - key: UPSTASH_REDIS_REST_TOKEN
+      - key: GIST_ID
         sync: false
       - key: DA_CLIENT_ID
         sync: false

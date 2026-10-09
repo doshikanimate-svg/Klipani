@@ -169,14 +169,14 @@ def trial_used(tg_id: int) -> bool:
 
     The claim lives in its own table so buying a paid plan afterwards
     (which overwrites the subscribers row) can never reopen the free trial —
-    and in Redis, because Render's free disk is wiped on every deploy.
-    A sqlite-only claim self-heals into Redis on first sight.
+    and in a secret gist, because Render's free disk is wiped on every deploy.
+    A sqlite-only claim self-heals into the gist on first sight.
     """
     try:
-        from trial_store import redis_claim, redis_config, redis_is_claimed
+        from trial_store import remote_claim, gist_config, remote_is_claimed
     except ImportError:
-        from .trial_store import redis_claim, redis_config, redis_is_claimed  # noqa: F401
-    persistent = redis_is_claimed(tg_id)
+        from .trial_store import remote_claim, gist_config, remote_is_claimed  # noqa: F401
+    persistent = remote_is_claimed(tg_id)
     if persistent is True:
         return True
     with _db() as db:
@@ -184,8 +184,8 @@ def trial_used(tg_id: int) -> bool:
             "SELECT 1 FROM trial_claims WHERE tg_id=?", (int(tg_id),)
         ).fetchone()
         local = row is not None
-    if local and persistent is False and redis_config() is not None:
-        claimed = redis_claim(tg_id)  # backfill the surviving store
+    if local and persistent is False and gist_config() is not None:
+        claimed = remote_claim(tg_id)  # backfill the surviving store
         if claimed is not None:
             return True
     return local
@@ -196,10 +196,10 @@ def claim_trial(tg_id: int) -> bool:
     import time as _time
 
     try:
-        from trial_store import redis_claim
+        from trial_store import remote_claim
     except ImportError:
-        from .trial_store import redis_claim
-    persistent = redis_claim(tg_id)
+        from .trial_store import remote_claim
+    persistent = remote_claim(tg_id)
     if persistent is not None:
         if persistent:
             with _db() as db:  # mirror locally for the admin panel, best effort
