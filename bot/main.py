@@ -105,19 +105,50 @@ def trial_used(tg_id: int) -> bool:
     """Trial is once per Telegram account, forever.
 
     The claim lives in its own table so buying a paid plan afterwards
-    (which overwrites the subscribers row) can never reopen the free trial.
+    (which overwrites the subscribers row) can never reopen the free trial —
+    and in Redis, because Render's free disk is wiped on every deploy.
+    A sqlite-only claim self-heals into Redis on first sight.
     """
+    try:
+        from trial_store import redis_claim, redis_config, redis_is_claimed
+    except ImportError:
+        from .trial_store import redis_claim, redis_config, redis_is_claimed  # noqa: F401
+    persistent = redis_is_claimed(tg_id)
+    if persistent is True:
+        return True
     with _db() as db:
         row = db.execute(
             "SELECT 1 FROM trial_claims WHERE tg_id=?", (int(tg_id),)
         ).fetchone()
-        return row is not None
+        local = row is not None
+    if local and persistent is False and redis_config() is not None:
+        claimed = redis_claim(tg_id)  # backfill the surviving store
+        if claimed is not None:
+            return True
+    return local
 
 
 def claim_trial(tg_id: int) -> bool:
     """Atomically record the free-trial claim. True = first time, False = already used."""
     import time as _time
 
+    try:
+        from trial_store import redis_claim
+    except ImportError:
+        from .trial_store import redis_claim
+    persistent = redis_claim(tg_id)
+    if persistent is not None:
+        if persistent:
+            with _db() as db:  # mirror locally for the admin panel, best effort
+                try:
+                    db.execute(
+                        "INSERT OR IGNORE INTO trial_claims(tg_id, claimed_at) VALUES (?, ?)",
+                        (int(tg_id), int(_time.time())),
+                    )
+                    db.commit()
+                except Exception:  # noqa: BLE001
+                    pass
+        return persistent
     with _db() as db:
         cursor = db.execute(
             "INSERT OR IGNORE INTO trial_claims(tg_id, claimed_at) VALUES (?, ?)",
